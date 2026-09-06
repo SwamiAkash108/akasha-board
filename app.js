@@ -348,7 +348,7 @@
     const total = tasks.length || 1;
     const R = 52, C = 2 * Math.PI * R;
     let acc = 0;
-    const colorMap = { todo: "#8a8378", doing: "#e8a33d", blocked: "#c94f3f", done: "#7ba05b" };
+    const colorMap = { todo: "#8a7f6b", doing: "#b3352c", blocked: "#2b4361", done: "#6b7040" };
     const arcs = byStatus.map((s) => {
       const frac = s.n / total;
       const seg = `<circle r="${R}" cx="70" cy="70" fill="none" stroke="${colorMap[s.id]}" stroke-width="17"
@@ -358,7 +358,7 @@
     }).join("");
     const donut = document.createElement("div");
     donut.className = "panel";
-    donut.innerHTML = `<h3>Tasks by status</h3><div class="donut-wrap">
+    donut.innerHTML = `<h3>By status</h3><div class="donut-wrap">
       <svg width="140" height="140" viewBox="0 0 140 140">${arcs}
         <text x="70" y="68" text-anchor="middle" class="donut-center" fill="var(--ink)" font-size="24">${tasks.length}</text>
         <text x="70" y="86" text-anchor="middle" class="donut-center-sub" fill="var(--faint)" font-size="9">TASKS</text></svg>
@@ -412,7 +412,7 @@
     for (const u of list) {
       const p = u.project_id ? projById(u.project_id) : null;
       const el = document.createElement("div");
-      el.className = "upd";
+      el.className = "upd" + (u.author === "fluso" ? " fluso-post" : "");
       el.innerHTML = `<div class="upd-head">
         <span class="upd-author ${esc(u.author)}">${u.author === "fluso" ? "Fluso" : esc(u.author)}</span>
         ${p ? `<span class="upd-proj">${esc(p.name)}</span>` : ""}
