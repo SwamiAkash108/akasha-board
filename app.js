@@ -348,7 +348,7 @@
     const total = tasks.length || 1;
     const R = 52, C = 2 * Math.PI * R;
     let acc = 0;
-    const colorMap = { todo: "#8a7f6b", doing: "#b3352c", blocked: "#2b4361", done: "#6b7040" };
+    const colorMap = { todo: "#8a7f6b", doing: "#c9912f", blocked: "#b3352c", done: "#6b7040" };
     const arcs = byStatus.map((s) => {
       const frac = s.n / total;
       const seg = `<circle r="${R}" cx="70" cy="70" fill="none" stroke="${colorMap[s.id]}" stroke-width="17"
