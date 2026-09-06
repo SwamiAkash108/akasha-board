@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Akasha Board</title>
-<meta name="theme-color" content="#17140f">
+<meta name="theme-color" content="#efe9dc">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="manifest.webmanifest">
@@ -12,7 +12,6 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -20,7 +19,8 @@
 <header id="topbar">
   <div class="brand">
     <img src="icon-192.png" alt="" class="brand-icon">
-    <span class="brand-name">Akasha Board</span>
+    <span class="brand-name">Akasha</span>
+    <span class="brand-sub">field logbook · est. 2026</span>
   </div>
   <div id="project-chips" class="project-chips"></div>
   <button id="btn-refresh" class="icon-btn" title="Refresh">⟳</button>
@@ -29,12 +29,14 @@
 <main id="main">
 
   <!-- BOARD -->
-  <section id="view-board" class="view">
+  <section id="view-board" class="view active">
+    <h2 class="view-title">The <em>board</em></h2>
     <div id="board" class="board"></div>
   </section>
 
   <!-- TIMELINE -->
   <section id="view-timeline" class="view">
+    <h2 class="view-title">The <em>voyage</em></h2>
     <div class="tl-wrap">
       <div id="timeline" class="timeline"></div>
       <div id="unscheduled" class="unscheduled"></div>
@@ -43,11 +45,13 @@
 
   <!-- CHARTS -->
   <section id="view-charts" class="view">
+    <h2 class="view-title">The <em>ledger</em></h2>
     <div id="charts" class="charts"></div>
   </section>
 
   <!-- UPDATES -->
   <section id="view-updates" class="view">
+    <h2 class="view-title">The <em>logbook</em></h2>
     <div class="updates-head">
       <div class="upd-input-row">
         <input id="upd-input" type="text" placeholder="Post an update…" autocomplete="off">
@@ -61,9 +65,9 @@
 
 <nav id="tabbar">
   <button class="tab active" data-view="board"><span class="tab-ico">▦</span><span>Board</span></button>
-  <button class="tab" data-view="timeline"><span class="tab-ico">⏱</span><span>Timeline</span></button>
-  <button class="tab" data-view="charts"><span class="tab-ico">◔</span><span>Charts</span></button>
-  <button class="tab" data-view="updates"><span class="tab-ico">✎</span><span>Updates</span></button>
+  <button class="tab" data-view="timeline"><span class="tab-ico">⏱</span><span>Voyage</span></button>
+  <button class="tab" data-view="charts"><span class="tab-ico">◔</span><span>Ledger</span></button>
+  <button class="tab" data-view="updates"><span class="tab-ico">✎</span><span>Logbook</span></button>
 </nav>
 
 <!-- FAB: add task -->
@@ -107,8 +111,8 @@
 <div id="login" class="login hidden">
   <div class="login-card">
     <img src="icon-192.png" alt="" class="login-icon">
-    <h2>Akasha Board</h2>
-    <p class="muted">Sign in to your board</p>
+    <h2>Akasha</h2>
+    <p class="muted">field logbook · sign in to your board</p>
     <input id="login-email" type="email" placeholder="Email" autocomplete="email">
     <input id="login-pass" type="password" placeholder="Password" autocomplete="current-password">
     <button id="login-btn" class="btn-accent">Sign in</button>
