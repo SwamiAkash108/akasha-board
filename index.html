@@ -18,9 +18,11 @@
 
 <header id="topbar">
   <div class="brand">
-    <img src="icon-192.png" alt="" class="brand-icon">
-    <span class="brand-name">PM Board</span>
-    <span class="brand-sub">field logbook · est. 2026</span>
+    <img src="icon-192.png" alt="Bhakti Marga emblem" class="brand-icon" width="38" height="38">
+    <div class="brand-text">
+      <span class="brand-name">PM Board</span>
+      <span class="brand-sub">field logbook · est. 2026</span>
+    </div>
   </div>
   <div id="project-chips" class="project-chips"></div>
   <button id="btn-refresh" class="icon-btn" title="Refresh">⟳</button>
@@ -63,11 +65,11 @@
 
 </main>
 
-<nav id="tabbar">
-  <button class="tab active" data-view="board"><span class="tab-ico">▦</span><span>Board</span></button>
-  <button class="tab" data-view="timeline"><span class="tab-ico">⏱</span><span>Voyage</span></button>
-  <button class="tab" data-view="charts"><span class="tab-ico">◔</span><span>Ledger</span></button>
-  <button class="tab" data-view="updates"><span class="tab-ico">✎</span><span>Logbook</span></button>
+<nav id="tabbar" aria-label="Main views">
+  <button class="tab active" data-view="board" title="Board — kanban of all tasks"><span class="tab-ico">▦</span><span>Board</span></button>
+  <button class="tab" data-view="timeline" title="Voyage — timeline of scheduled tasks"><span class="tab-ico">⏱</span><span>Voyage</span></button>
+  <button class="tab" data-view="charts" title="Ledger — charts and progress"><span class="tab-ico">◔</span><span>Ledger</span></button>
+  <button class="tab" data-view="updates" title="Logbook — updates feed"><span class="tab-ico">✎</span><span>Logbook</span></button>
 </nav>
 
 <!-- FAB: add task -->
