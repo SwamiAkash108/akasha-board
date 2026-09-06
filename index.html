@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Akasha Board</title>
+<meta name="theme-color" content="#17140f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header id="topbar">
+  <div class="brand">
+    <img src="icon-192.png" alt="" class="brand-icon">
+    <span class="brand-name">Akasha Board</span>
+  </div>
+  <div id="project-chips" class="project-chips"></div>
+  <button id="btn-refresh" class="icon-btn" title="Refresh">⟳</button>
+</header>
+
+<main id="main">
+
+  <!-- BOARD -->
+  <section id="view-board" class="view">
+    <div id="board" class="board"></div>
+  </section>
+
+  <!-- TIMELINE -->
+  <section id="view-timeline" class="view">
+    <div class="tl-wrap">
+      <div id="timeline" class="timeline"></div>
+      <div id="unscheduled" class="unscheduled"></div>
+    </div>
+  </section>
+
+  <!-- CHARTS -->
+  <section id="view-charts" class="view">
+    <div id="charts" class="charts"></div>
+  </section>
+
+  <!-- UPDATES -->
+  <section id="view-updates" class="view">
+    <div class="updates-head">
+      <div class="upd-input-row">
+        <input id="upd-input" type="text" placeholder="Post an update…" autocomplete="off">
+        <button id="upd-send" class="btn-accent">Post</button>
+      </div>
+    </div>
+    <div id="updates" class="updates"></div>
+  </section>
+
+</main>
+
+<nav id="tabbar">
+  <button class="tab active" data-view="board"><span class="tab-ico">▦</span><span>Board</span></button>
+  <button class="tab" data-view="timeline"><span class="tab-ico">⏱</span><span>Timeline</span></button>
+  <button class="tab" data-view="charts"><span class="tab-ico">◔</span><span>Charts</span></button>
+  <button class="tab" data-view="updates"><span class="tab-ico">✎</span><span>Updates</span></button>
+</nav>
+
+<!-- FAB: add task -->
+<button id="fab" title="New task">+</button>
+
+<!-- Task modal -->
+<div id="modal-backdrop" class="modal-backdrop hidden">
+  <div id="modal" class="modal" role="dialog">
+    <h3 id="modal-title">Task</h3>
+    <label>Title<input id="f-title" type="text"></label>
+    <label>Notes<textarea id="f-notes" rows="3"></textarea></label>
+    <div class="modal-grid">
+      <label>Status
+        <select id="f-status">
+          <option value="todo">To do</option>
+          <option value="doing">Doing</option>
+          <option value="blocked">Blocked</option>
+          <option value="done">Done</option>
+        </select>
+      </label>
+      <label>Priority
+        <select id="f-priority">
+          <option value="3">High</option>
+          <option value="2" selected>Normal</option>
+          <option value="1">Low</option>
+        </select>
+      </label>
+      <label>Start<input id="f-start" type="date"></label>
+      <label>Due<input id="f-due" type="date"></label>
+    </div>
+    <div class="modal-actions">
+      <button id="f-delete" class="btn-danger">Delete</button>
+      <span class="spacer"></span>
+      <button id="f-cancel" class="btn-ghost">Cancel</button>
+      <button id="f-save" class="btn-accent">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Login -->
+<div id="login" class="login hidden">
+  <div class="login-card">
+    <img src="icon-192.png" alt="" class="login-icon">
+    <h2>Akasha Board</h2>
+    <p class="muted">Sign in to your board</p>
+    <input id="login-email" type="email" placeholder="Email" autocomplete="email">
+    <input id="login-pass" type="password" placeholder="Password" autocomplete="current-password">
+    <button id="login-btn" class="btn-accent">Sign in</button>
+    <p id="login-err" class="login-err"></p>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="db.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
