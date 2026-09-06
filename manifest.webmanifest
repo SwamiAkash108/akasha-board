@@ -1,6 +1,6 @@
 {
-  "name": "Akasha Board",
-  "short_name": "Akasha",
+  "name": "PM Board",
+  "short_name": "PM Board",
   "description": "Private project board, voice-fed via Telegram",
   "start_url": "./index.html",
   "scope": "./",
