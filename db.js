@@ -13,7 +13,7 @@
   const today = new Date();
   const d = (offset) => {
     const t = new Date(today); t.setDate(t.getDate() + offset);
-    return t.toISOString().slice(0, 10);
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
   };
   const DEFAULT_COLS = [
     { name: "To do", color: "#8a7f6b" },
