@@ -490,3 +490,11 @@ body::after{
 /* multi-select in modal + registry */
 #m-assignee[multiple]{min-height:96px}
 .assignee-select[multiple]{min-height:38px}
+
+/* column reorder handle */
+.col-move{
+  background:transparent; border:none; color:var(--ink2); cursor:grab;
+  font-size:13px; letter-spacing:-2px; padding:2px 4px; line-height:1; user-select:none;
+}
+.col-move:active{cursor:grabbing}
+.col-dragging{opacity:.5; outline:2px dashed var(--ink2)}
