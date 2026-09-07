@@ -1,5 +1,5 @@
 -- v4 migration — custom per-project columns + people + assignees.
--- Paste into Supabase SQL Editor and Run once. Safe to re-run.
+-- Idempotent: safe to run multiple times.
 
 -- 1. columns: each project gets its own ordered set of stages
 create table if not exists columns (
@@ -36,16 +36,28 @@ cross join (values
 ) as s(name, color, pos)
 on conflict (project_id, name) do nothing;
 
--- 5. owner policies + realtime
+-- 5. RLS + policies (drop first so re-runs don't error)
 alter table columns enable row level security;
 alter table people enable row level security;
+drop policy if exists "owner all" on columns;
+drop policy if exists "owner all" on people;
 create policy "owner all" on columns for all to authenticated using (true) with check (true);
 create policy "owner all" on people for all to authenticated using (true) with check (true);
 
-alter publication supabase_realtime add table columns;
-alter publication supabase_realtime add table people;
+-- 6. realtime (ignore "already a member" on re-runs)
+do $$
+begin
+  begin
+    alter publication supabase_realtime add table columns;
+  exception when duplicate_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table people;
+  exception when duplicate_object then null;
+  end;
+end $$;
 
--- 6. exec_sql helper — lets Fluso run future migrations via the API,
+-- 7. exec_sql helper — lets Fluso run future migrations via the API,
 --    so you never need to open this SQL editor again.
 create or replace function exec_sql(sql text)
 returns void
