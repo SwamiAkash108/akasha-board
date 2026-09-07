@@ -498,3 +498,10 @@ body::after{
 }
 .col-move:active{cursor:grabbing}
 .col-dragging{opacity:.5; outline:2px dashed var(--ink2)}
+
+/* column move arrows */
+.col-arrow{
+  background:transparent; border:none; color:var(--ink2); cursor:pointer;
+  font-size:15px; padding:2px 4px; line-height:1; font-family:var(--font-ui);
+}
+.col-arrow:hover{color:var(--red)}
