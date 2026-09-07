@@ -192,7 +192,7 @@
         ${person ? `<span class="avatar" style="background:${person.color}" title="${escAttr(person.name)}">${initials(person.name)}</span>` : ""}
         ${state.activeProject === "all" && p ? `<span class="card-proj">${esc(p.name)}</span>` : ""}
       </div>`;
-    card.onclick = () => openTaskModal(t);
+    card.onclick = () => { if (state._suppressClick) { state._suppressClick = false; return; } openTaskModal(t); };
     card.addEventListener("dragstart", (e) => {
       e.dataTransfer.setData("text/plain", t.id);
       e.dataTransfer.effectAllowed = "move";
@@ -200,6 +200,16 @@
     });
     card.addEventListener("dragend", () => card.classList.remove("dragging"));
     return card;
+  }
+
+  /* guard: wraps async handlers so a second tap during a slow save can't double-submit */
+  function guard(fn) {
+    return async (e) => {
+      if (state._busy) return;
+      state._busy = true;
+      try { await fn(e); } catch (err) { console.error(err); }
+      finally { state._busy = false; }
+    };
   }
 
   async function moveTaskToStage(task, stageName, bodyEl) {
@@ -251,8 +261,10 @@
         const t = byId(state.tasks, touchDrag.id);
         touchDrag = null;
         if (t && targetCol && targetCol.dataset.stage) {
+          state._suppressClick = true;
           await moveTaskToStage(t, targetCol.dataset.stage, $(".col-body", targetCol));
         } else {
+          state._suppressClick = true;
           render();
         }
       };
@@ -579,7 +591,12 @@
 
   /* ---------- MODALS ---------- */
   let modalEl = null;
-  function closeModal() { if (modalEl) { modalEl.remove(); modalEl = null; state.modalTask = null; } }
+  function closeModal() {
+    if (modalEl) {
+      modalEl.remove(); modalEl = null; state.modalTask = null;
+      if (state._reloadPending) { state._reloadPending = false; reload().then(render); }
+    }
+  }
   function modalShell(html) {
     closeModal();
     const back = document.createElement("div");
@@ -639,13 +656,13 @@
     });
 
     $("#m-cancel", back).onclick = closeModal;
-    if (!isNew) $("#m-del", back).onclick = async () => {
+    if (!isNew) $("#m-del", back).onclick = guard(async () => {
       if (!confirm(`Delete "${t.title}"?`)) return;
       await DB.deleteTask(t.id);
       state.tasks = state.tasks.filter((x) => x.id !== t.id);
       closeModal(); render();
-    };
-    $("#m-save", back).onclick = async () => {
+    });
+    $("#m-save", back).onclick = guard(async () => {
       const patch = {
         title: $("#m-title", back).value.trim(),
         project_id: $("#m-proj", back).value,
@@ -659,13 +676,13 @@
       if (!patch.title) { $("#m-title", back).focus(); return; }
       if (isNew) {
         const created = await DB.addTask(patch);
-        state.tasks.push(created);
+        if (!state.tasks.some((x) => x.id === created.id)) state.tasks.push(created);
       } else {
         Object.assign(t, patch);
         await DB.updateTask(t.id, patch);
       }
       closeModal(); render();
-    };
+    });
     setTimeout(() => $("#m-title", back).focus(), 50);
   }
 
@@ -691,7 +708,7 @@
       $$(".swatch", back).forEach((x) => x.classList.toggle("sel", x === b));
     });
     $("#c-cancel", back).onclick = closeModal;
-    if (!isNew) $("#c-del", back).onclick = async () => {
+    if (!isNew) $("#c-del", back).onclick = guard(async () => {
       const inUse = state.tasks.filter((t) => t.project_id === state.activeProject &&
         String(t.status).toLowerCase() === c.name.toLowerCase()).length;
       if (inUse) { alert(`"${c.name}" still has ${inUse} task${inUse > 1 ? "s" : ""}. Move them first.`); return; }
@@ -700,14 +717,14 @@
       await DB.deleteColumn(c.id);
       state.columns = state.columns.filter((x) => x.id !== c.id);
       closeModal(); render();
-    };
-    $("#c-save", back).onclick = async () => {
+    });
+    $("#c-save", back).onclick = guard(async () => {
       const name = $("#c-name", back).value.trim();
       if (!name) { $("#c-name", back).focus(); return; }
       if (isNew) {
         const pos = Math.max(0, ...colsForProject(state.activeProject).map((x) => x.position)) + 1;
         const created = await DB.addColumn(state.activeProject, name, picked, pos);
-        state.columns.push(created);
+        if (!state.columns.some((x) => x.id === created.id)) state.columns.push(created);
       } else {
         const oldName = c.name;
         Object.assign(c, { name, color: picked });
@@ -720,7 +737,7 @@
         }
       }
       closeModal(); render();
-    };
+    });
     setTimeout(() => $("#c-name", back).focus(), 50);
   }
 
@@ -744,7 +761,7 @@
         <button class="btn-accent" id="p-add">Add</button>
       </div>`);
     $("#p-close", back).onclick = closeModal;
-    $("#p-add", back).onclick = async () => {
+    $("#p-add", back).onclick = guard(async () => {
       const name = $("#p-name", back).value.trim();
       if (!name) return;
       if (state.people.some((p) => p.name.toLowerCase() === name.toLowerCase())) { alert("Already in the list."); return; }
@@ -752,15 +769,15 @@
       const created = await DB.addPerson(name, color);
       state.people.push(created);
       closeModal(); openPersonModal(); render();
-    };
-    $$(".person-del", back).forEach((b) => b.onclick = async () => {
+    });
+    $$(".person-del", back).forEach((b) => b.onclick = guard(async () => {
       const p = byId(state.people, b.dataset.id);
       if (!confirm(`Remove ${p.name}? Their tasks become unassigned.`)) return;
       await DB.deletePerson(p.id);
       state.people = state.people.filter((x) => x.id !== p.id);
       state.tasks.forEach((t) => { if (t.assignee_id === p.id) t.assignee_id = null; });
       closeModal(); openPersonModal(); render();
-    });
+    }));
     setTimeout(() => $("#p-name", back).focus(), 50);
   }
 
@@ -774,27 +791,35 @@
         <button class="btn-accent" id="np-save">Create</button>
       </div>`);
     $("#np-cancel", back).onclick = closeModal;
-    $("#np-save", back).onclick = async () => {
+    $("#np-save", back).onclick = guard(async () => {
       const name = $("#np-name", back).value.trim();
       if (!name) return;
       const p = await DB.addProject(name);
       p.color = PROJECT_COLORS[state.projects.length % PROJECT_COLORS.length];
-      state.projects.push(p);
-      if (p._columns) state.columns.push(...p._columns);
+      if (!state.projects.some((x) => x.id === p.id)) state.projects.push(p);
+      if (p._columns) p._columns.forEach((c) => { if (!state.columns.some((x) => x.id === c.id)) state.columns.push(c); });
       state.activeProject = p.id;
       closeModal(); render();
-    };
+    });
     setTimeout(() => $("#np-name", back).focus(), 50);
   }
 
   /* ---------- boot ---------- */
   async function reload() {
     const data = await DB.loadAll();
-    state.projects = data.projects || [];
-    state.columns = data.columns || [];
-    state.people = data.people || [];
-    state.tasks = data.tasks || [];
-    state.updates = data.updates || [];
+    // defensive: never let the same row appear twice in state
+    const dedupe = (arr) => {
+      const seen = new Set();
+      return (arr || []).filter((x) => {
+        if (!x || !x.id || seen.has(x.id)) return false;
+        seen.add(x.id); return true;
+      });
+    };
+    state.projects = dedupe(data.projects);
+    state.columns = dedupe(data.columns);
+    state.people = dedupe(data.people);
+    state.tasks = dedupe(data.tasks);
+    state.updates = dedupe(data.updates);
   }
 
   function bind() {
@@ -814,22 +839,34 @@
   }
 
   async function postUpdate() {
+    if (state._busy) return;
     const inp = $("#upd-input");
     const text = inp.value.trim();
     if (!text) return;
-    const pid = state.activeProject !== "all" ? state.activeProject : null;
-    const u = await DB.addUpdate(pid, text, "akash");
-    state.updates.unshift(u);
-    inp.value = "";
-    renderUpdates();
+    state._busy = true;
+    try {
+      const pid = state.activeProject !== "all" ? state.activeProject : null;
+      const u = await DB.addUpdate(pid, text, "akash");
+      if (!state.updates.some((x) => x.id === u.id)) state.updates.unshift(u);
+      inp.value = "";
+      renderUpdates();
+    } catch (e) { console.error(e); }
+    finally { state._busy = false; }
   }
 
   function subscribe() {
     if (DB.demo) return;
     try {
-      const cfg = window.APP_CONFIG;
-      const client = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
-      const reloadDeb = () => { clearTimeout(state._rt); state._rt = setTimeout(async () => { await reload(); render(); }, 300); };
+      const client = DB.client; // reuse the db.js client — one auth context only
+      if (!client) return;
+      const reloadDeb = () => {
+        clearTimeout(state._rt);
+        state._rt = setTimeout(async () => {
+          // don't clobber an open modal or an in-flight drag — run after instead
+          if (modalEl || touchDrag || state._busy) { state._reloadPending = true; return; }
+          await reload(); render();
+        }, 400);
+      };
       client.channel("board-changes")
         .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, reloadDeb)
         .on("postgres_changes", { event: "*", schema: "public", table: "updates" }, reloadDeb)
