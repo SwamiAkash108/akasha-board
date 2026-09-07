@@ -185,8 +185,8 @@
       if (error) throw error;
       return data;
     },
-    async addChat(role, text) {
-      const row = { role, text };
+    async addChat(role, text, source = "app") {
+      const row = { role, text, source };
       if (DEMO) { const c = { id: uid(), created_at: new Date().toISOString(), ...row }; (demo.chat = demo.chat || []).push(c); return c; }
       const { data, error } = await sb.from("chat").insert(row).select().single();
       if (error) throw error; return data;
