@@ -459,3 +459,6 @@ body::after{
   .board{flex-wrap:nowrap}
   #fab{bottom:36px; right:38px}
 }
+
+/* v6: busy state for guarded async buttons */
+.btn-accent:disabled,.btn-ghost:disabled{opacity:.55;pointer-events:none}
