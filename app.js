@@ -10,9 +10,9 @@
   const PERSON_COLORS = ["#b3352c", "#2b4361", "#6b7040", "#c9912f", "#a05b8f", "#5b8fa0", "#c96f3f", "#8f7bd8"];
 
   const state = {
-    projects: [], columns: [], people: [], tasks: [], updates: [],
+    projects: [], columns: [], people: [], tasks: [], updates: [], chat: [],
     activeProject: "all", view: "board", modalTask: null,
-    search: "", hideDone: false,
+    search: "", hideDone: false, hideUnscheduled: false,
   };
 
   /* ---------- helpers ---------- */
@@ -25,7 +25,11 @@
   const initials = (name) => name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 
   const projOf = (t) => byId(state.projects, t.project_id);
-  const personOf = (t) => t.assignee_id ? byId(state.people, t.assignee_id) : null;
+  const peopleOf = (t) => {
+    let ids = t.assignees;
+    if ((!ids || !ids.length) && t.assignee_id) ids = [t.assignee_id]; // legacy backfill
+    return (ids || []).map((id) => byId(state.people, id)).filter(Boolean);
+  };
 
   /* ---------- columns model ---------- */
   // columns for one project, ordered
@@ -88,7 +92,7 @@
     if (state.view === "board") renderBoard();
     else if (state.view === "timeline") renderTimeline();
     else if (state.view === "charts") renderCharts();
-    else if (state.view === "updates") renderUpdates();
+    else if (state.view === "updates") renderChat();
     else if (state.view === "list") renderList();
   }
 
@@ -101,6 +105,15 @@
       b.textContent = label;
       if (color) b.style.setProperty("--chip-color", color);
       b.onclick = () => { state.activeProject = id; render(); };
+      if (id !== "all") {
+        let pressTimer = null;
+        const start = () => { pressTimer = setTimeout(() => deleteProject(id, label), 700); };
+        const cancel = () => clearTimeout(pressTimer);
+        b.addEventListener("pointerdown", start);
+        b.addEventListener("pointerup", cancel);
+        b.addEventListener("pointerleave", cancel);
+        b.addEventListener("contextmenu", (e) => { e.preventDefault(); deleteProject(id, label); });
+      }
       wrap.appendChild(b);
     };
     mk("all", "All projects");
@@ -174,7 +187,7 @@
     card.draggable = true;
     card.dataset.id = t.id;
     const p = projOf(t);
-    const person = personOf(t);
+    const people = peopleOf(t);
     const done = isDoneStage(t.status);
     let badges = "";
     if (t.due) {
@@ -185,11 +198,12 @@
     }
     if (t.priority === 3) badges += `<span class="badge badge-pri3">!!!</span>`;
     else if (t.priority === 1) badges += `<span class="badge badge-pri1">low</span>`;
+    const avatars = people.map((pe) => `<span class="avatar" style="background:${pe.color}" title="${escAttr(pe.name)}">${initials(pe.name)}</span>`).join("");
     card.innerHTML = `
       <div class="card-title">${esc(t.title)}</div>
       <div class="card-meta">
         ${badges}
-        ${person ? `<span class="avatar" style="background:${person.color}" title="${escAttr(person.name)}">${initials(person.name)}</span>` : ""}
+        ${avatars}
         ${state.activeProject === "all" && p ? `<span class="card-proj">${esc(p.name)}</span>` : ""}
       </div>`;
     card.onclick = () => { if (state._suppressClick) { state._suppressClick = false; return; } openTaskModal(t); };
@@ -310,13 +324,13 @@
 
     sorted.forEach((t) => {
       const p = projOf(t);
-      const person = personOf(t);
+      const people = peopleOf(t);
       const done = isDoneStage(t.status);
       const projCols = colsForProject(t.project_id);
       const stageOpts = (projCols.length ? projCols : stages)
         .map((s) => `<option value="${escAttr(s.name)}" ${String(t.status).toLowerCase() === s.name.toLowerCase() ? "selected" : ""}>${esc(s.name)}</option>`).join("");
-      const peopleOpts = `<option value="">—</option>` + state.people
-        .map((pe) => `<option value="${pe.id}" ${t.assignee_id === pe.id ? "selected" : ""}>${esc(pe.name)}</option>`).join("");
+      const peopleOpts = state.people
+        .map((pe) => `<option value="${pe.id}" ${people.some((x) => x.id === pe.id) ? "selected" : ""}>${esc(pe.name)}</option>`).join("");
       let dueCls = "";
       if (t.due && !done) {
         const diff = dayDiff(todayStr(), t.due);
@@ -330,7 +344,7 @@
             <select class="cell-select status-select" data-id="${t.id}" style="border-color:${stageColor(t.status, t.project_id)}">${stageOpts}</select>
           </span>
           <span class="lc-assignee">
-            <select class="cell-select assignee-select" data-id="${t.id}">${peopleOpts}</select>
+            <select class="cell-select assignee-select" data-id="${t.id}" multiple size="1" title="Hold Ctrl/Cmd to pick several">${peopleOpts}</select>
           </span>
           <span class="lc-due ${dueCls}">${t.due ? fmtDate(t.due) : "—"}</span>
           <span class="lc-pri">${"!".repeat(t.priority)}</span>
@@ -360,8 +374,9 @@
     $$(".assignee-select", wrap).forEach((sel) => sel.addEventListener("change", async (e) => {
       const t = byId(state.tasks, sel.dataset.id);
       if (!t) return;
-      t.assignee_id = sel.value || null;
-      await DB.updateTask(t.id, { assignee_id: t.assignee_id });
+      t.assignees = [...sel.selectedOptions].map((o) => o.value);
+      t.assignee_id = t.assignees[0] || null; // keep legacy col in sync
+      await DB.updateTask(t.id, { assignees: t.assignees, assignee_id: t.assignee_id });
     }));
     $$('[data-act="edit"]', wrap).forEach((el) => el.addEventListener("click", () => {
       const t = byId(state.tasks, el.closest(".list-row").dataset.id);
@@ -374,7 +389,14 @@
     const wrap = $("#timeline-wrap");
     wrap.innerHTML = "";
     const tasks = filteredTasks().filter((t) => t.start || t.due);
-    const uns = filteredTasks().filter((t) => !t.start && !t.due);
+    const uns = state.hideUnscheduled ? [] : filteredTasks().filter((t) => !t.start && !t.due);
+
+    // hide-unscheduled toggle
+    const toggle = $("#tl-hide-uns");
+    if (toggle) {
+      toggle.checked = state.hideUnscheduled;
+      toggle.onchange = (e) => { state.hideUnscheduled = e.target.checked; renderTimeline(); };
+    }
 
     if (!tasks.length && !uns.length) {
       wrap.innerHTML = `<div class="empty-hint">No tasks yet.</div>`;
@@ -473,8 +495,7 @@
     if (uns.length) {
       const box = document.createElement("div");
       box.className = "unscheduled";
-      box.innerHTML = `<h4>Unscheduled</h4>`;
-      uns.forEach((t) => {
+      box.innerHTML = `<h4>Unscheduled</h4>`;      uns.forEach((t) => {
         const el = document.createElement("div");
         el.className = "uns-item";
         const p = projOf(t);
@@ -568,25 +589,47 @@
   }
 
   /* ---------- UPDATES ---------- */
-  function renderUpdates() {
-    const wrap = $("#updates-list");
-    const ups = state.activeProject === "all"
-      ? state.updates
-      : state.updates.filter((u) => u.project_id === state.activeProject);
-    wrap.innerHTML = ups.map((u) => {
-      const p = byId(state.projects, u.project_id);
-      const dt = new Date(u.created_at);
+  function renderChat() {
+    const wrap = $("#chat-wrap");
+    if (!wrap) return;
+    const msgs = state.chat;
+    if (!msgs.length) {
+      wrap.innerHTML = `<div class="empty-hint">No messages yet. Say hello — this is the same thread as Telegram @fluso_pm_bot.</div>`;
+      return;
+    }
+    wrap.innerHTML = msgs.map((m) => {
+      const dt = new Date(m.created_at);
       const when = dt.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) + " · " +
         dt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-      return `<div class="upd ${u.author === "fluso" ? "fluso-post" : ""}">
-        <div class="upd-head">
-          <span class="upd-author ${u.author === "fluso" ? "fluso" : ""}">${u.author === "fluso" ? "Fluso" : "Akash"}</span>
-          ${p ? `<span class="upd-proj">${esc(p.name)}</span>` : ""}
-          <span class="upd-time">${when}</span>
-        </div>
-        <div class="upd-text">${esc(u.text)}</div>
+      const mine = m.role === "fluso";
+      return `<div class="chat-msg ${mine ? "fluso" : "akash"}">
+        <div class="chat-bubble">${esc(m.text)}</div>
+        <div class="chat-meta">${mine ? "Fluso" : "Akash"} · ${when}</div>
       </div>`;
-    }).join("") || `<div class="empty-hint">No updates yet. Post the first one above.</div>`;
+    }).join("");
+    wrap.scrollTop = wrap.scrollHeight;
+  }
+
+  async function sendChat() {
+    const inp = $("#chat-input");
+    const text = inp.value.trim();
+    if (!text) return;
+    inp.value = "";
+    const c = await DB.addChat("user", text);   // app-side message → chat table
+    if (!state.chat.some((x) => x.id === c.id)) state.chat.push(c);
+    renderChat();
+  }
+
+  async function deleteProject(id, label) {
+    const n = state.tasks.filter((t) => t.project_id === id).length;
+    if (!confirm(`Delete project "${label}" and its ${n} task${n !== 1 ? "s" : ""}? This cannot be undone.`)) return;
+    await DB.deleteProject(id);
+    state.projects = state.projects.filter((x) => x.id !== id);
+    state.columns = state.columns.filter((x) => x.project_id !== id);
+    state.tasks = state.tasks.filter((x) => x.project_id !== id);
+    state.updates = state.updates.filter((x) => x.project_id !== id);
+    if (state.activeProject === id) state.activeProject = "all";
+    render();
   }
 
   /* ---------- MODALS ---------- */
@@ -610,14 +653,15 @@
 
   function openTaskModal(task, preset = {}) {
     const isNew = !task;
-    const t = task || { title: "", project_id: state.activeProject !== "all" ? state.activeProject : (state.projects[0] || {}).id, status: preset.status || "To do", priority: 2, start: "", due: "", notes: "", assignee_id: null };
+    const t = task || { title: "", project_id: state.activeProject !== "all" ? state.activeProject : (state.projects[0] || {}).id, status: preset.status || "To do", priority: 2, start: "", due: "", notes: "", assignees: [] };
     const projCols = colsForProject(t.project_id);
     const stageOpts = (projCols.length ? projCols : visibleStages())
       .map((s) => `<option value="${escAttr(s.name)}" ${String(t.status).toLowerCase() === s.name.toLowerCase() ? "selected" : ""}>${esc(s.name)}</option>`).join("");
     const projOpts = state.projects
       .map((p) => `<option value="${p.id}" ${t.project_id === p.id ? "selected" : ""}>${esc(p.name)}</option>`).join("");
-    const peopleOpts = `<option value="">Unassigned</option>` + state.people
-      .map((pe) => `<option value="${pe.id}" ${t.assignee_id === pe.id ? "selected" : ""}>${esc(pe.name)}</option>`).join("");
+    const selPeople = peopleOf(t).map((x) => x.id);
+    const peopleOpts = state.people
+      .map((pe) => `<option value="${pe.id}" ${selPeople.includes(pe.id) ? "selected" : ""}>${esc(pe.name)}</option>`).join("");
 
     const back = modalShell(`
       <h3>${isNew ? "New task" : "Edit task"}</h3>
@@ -636,7 +680,7 @@
           <option value="2" ${t.priority === 2 ? "selected" : ""}>Normal</option>
           <option value="3" ${t.priority === 3 ? "selected" : ""}>High</option>
         </select></label>
-        <label>Assigned to<select id="m-assignee">${peopleOpts}</select></label>
+        <label>Assigned to<select id="m-assignee" multiple size="3">${peopleOpts}</select><span class="muted" style="font-size:11px">hold Ctrl/Cmd for several</span></label>
       </div>
       <label>Notes<textarea id="m-notes" rows="3">${esc(t.notes || "")}</textarea></label>
       <div class="modal-actions">
@@ -670,9 +714,10 @@
         start: $("#m-start", back).value || null,
         due: $("#m-due", back).value || null,
         priority: parseInt($("#m-pri", back).value, 10),
-        assignee_id: $("#m-assignee", back).value || null,
+        assignees: [...$("#m-assignee", back).selectedOptions].map((o) => o.value),
         notes: $("#m-notes", back).value.trim(),
       };
+      patch.assignee_id = patch.assignees[0] || null; // keep legacy col in sync
       if (!patch.title) { $("#m-title", back).focus(); return; }
       if (isNew) {
         const created = await DB.addTask(patch);
@@ -743,7 +788,7 @@
 
   function openPersonModal() {
     const list = state.people.map((p) => {
-      const n = state.tasks.filter((t) => t.assignee_id === p.id && !isDoneStage(t.status)).length;
+      const n = state.tasks.filter((t) => (t.assignees || []).includes(p.id) && !isDoneStage(t.status)).length;
       return `<div class="person-row" data-id="${p.id}">
         <span class="avatar" style="background:${p.color}">${initials(p.name)}</span>
         <span class="person-name">${esc(p.name)}</span>
@@ -775,7 +820,7 @@
       if (!confirm(`Remove ${p.name}? Their tasks become unassigned.`)) return;
       await DB.deletePerson(p.id);
       state.people = state.people.filter((x) => x.id !== p.id);
-      state.tasks.forEach((t) => { if (t.assignee_id === p.id) t.assignee_id = null; });
+      state.tasks.forEach((t) => { t.assignees = (t.assignees || []).filter((x) => x !== p.id); t.assignee_id = t.assignees[0] || null; });
       closeModal(); openPersonModal(); render();
     }));
     setTimeout(() => $("#p-name", back).focus(), 50);
@@ -820,6 +865,7 @@
     state.people = dedupe(data.people);
     state.tasks = dedupe(data.tasks);
     state.updates = dedupe(data.updates);
+    state.chat = dedupe(await DB.loadChat(150));
   }
 
   function bind() {
@@ -832,26 +878,9 @@
     $("#fab").onclick = () => openTaskModal(null);
     $("#btn-people").onclick = openPersonModal;
     $("#btn-add-project").onclick = openProjectModal;
-    $("#upd-post").onclick = postUpdate;
-    $("#upd-input").addEventListener("keydown", (e) => { if (e.key === "Enter") postUpdate();
-    });
+    $("#chat-send").onclick = guard(sendChat);
+    $("#chat-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
-  }
-
-  async function postUpdate() {
-    if (state._busy) return;
-    const inp = $("#upd-input");
-    const text = inp.value.trim();
-    if (!text) return;
-    state._busy = true;
-    try {
-      const pid = state.activeProject !== "all" ? state.activeProject : null;
-      const u = await DB.addUpdate(pid, text, "akash");
-      if (!state.updates.some((x) => x.id === u.id)) state.updates.unshift(u);
-      inp.value = "";
-      renderUpdates();
-    } catch (e) { console.error(e); }
-    finally { state._busy = false; }
   }
 
   function subscribe() {
@@ -873,6 +902,13 @@
         .on("postgres_changes", { event: "*", schema: "public", table: "projects" }, reloadDeb)
         .on("postgres_changes", { event: "*", schema: "public", table: "columns" }, reloadDeb)
         .on("postgres_changes", { event: "*", schema: "public", table: "people" }, reloadDeb)
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat" }, (payload) => {
+          const row = payload.new;
+          if (row && !state.chat.some((x) => x.id === row.id)) {
+            state.chat.push(row);
+            if (state.view === "updates") renderChat();
+          }
+        })
         .subscribe();
     } catch (e) { /* realtime optional */ }
   }
