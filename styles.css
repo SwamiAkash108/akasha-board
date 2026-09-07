@@ -108,8 +108,31 @@ body::before{
   min-width:24px; height:24px; padding:0 6px; border-radius:999px;
   border:1.5px solid var(--line2); display:grid; place-items:center; background:var(--card2);
 }
+.col-edit{
+  background:transparent; border:none; color:var(--faint); cursor:pointer;
+  font-size:13px; padding:2px 4px; border-radius:3px; line-height:1;
+}
+.col-edit:hover{color:var(--red)}
 .col-body{min-height:56px; display:flex; flex-direction:column; gap:9px}
 .col.drag-over{outline:2px dashed var(--red); outline-offset:3px}
+
+.add-col{
+  flex-shrink:0; width:150px; margin-top:0; padding:18px 10px; align-self:flex-start;
+  background:transparent; border:2px dashed var(--line2); border-radius:var(--radius);
+  color:var(--faint); cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:6px;
+  font-family:var(--font-ui); font-weight:700; font-size:11px; text-transform:uppercase; letter-spacing:.08em;
+  transition:all .15s ease;
+}
+.add-col:hover{border-color:var(--red); color:var(--red)}
+.add-col-plus{font-size:22px; line-height:1; font-weight:400}
+.empty-hint{font-family:var(--font-head); font-style:italic; color:var(--faint); padding:18px 6px; font-size:15px}
+
+/* avatars */
+.avatar{
+  display:inline-grid; place-items:center; width:22px; height:22px; border-radius:50%;
+  color:#fff; font-family:var(--font-ui); font-weight:700; font-size:9.5px; letter-spacing:.02em;
+  flex-shrink:0; box-shadow:0 0 0 1.5px rgba(30,26,19,.15);
+}
 
 .card{
   background:var(--card2); border:1px solid var(--line);
@@ -141,6 +164,86 @@ body::before{
   cursor:pointer; transition:all .15s ease;
 }
 .add-task:hover{border-color:var(--red); color:var(--red)}
+
+/* ---------- registry (list view) ---------- */
+.list-toolbar{display:flex; align-items:center; gap:14px; margin-bottom:14px; flex-wrap:wrap}
+#list-search{
+  flex:1; min-width:200px; max-width:420px; background:var(--card); border:1.5px solid var(--line2);
+  border-radius:3px; padding:11px 15px; color:var(--ink); font-size:15px; font-family:var(--font-head);
+  outline:none; min-height:44px;
+}
+#list-search:focus{border-color:var(--ink)}
+#list-search::placeholder{font-family:var(--font-ui); color:var(--faint); font-size:13.5px}
+.hide-done{
+  display:flex; align-items:center; gap:7px; font-family:var(--font-ui); font-weight:600;
+  font-size:11.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--ink2); cursor:pointer;
+}
+.hide-done input{width:17px; height:17px; accent-color:var(--red); cursor:pointer}
+.list-table{
+  background:var(--card); border:1.5px solid var(--line2); border-radius:var(--radius);
+  box-shadow:var(--shadow); overflow:hidden;
+}
+.list-row{
+  display:grid; align-items:center; gap:10px;
+  grid-template-columns:minmax(140px,1fr) 150px 130px 80px 40px;
+  padding:10px 14px; border-bottom:1px solid var(--line);
+  font-size:14px;
+}
+.list-row:last-child{border-bottom:none}
+.list-row.list-head{
+  background:var(--paper2); border-bottom:2px solid var(--ink);
+  font-family:var(--font-ui); font-weight:700; font-size:10.5px; text-transform:uppercase;
+  letter-spacing:.09em; color:var(--faint); padding:10px 14px;
+}
+.list-row:not(.list-head):hover{background:var(--card2)}
+.list-row.is-done .lc-title{text-decoration:line-through; opacity:.55}
+.lc-title{font-family:var(--font-head); font-weight:600; font-size:15px; cursor:pointer; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.lc-title:hover{color:var(--red)}
+.lc-proj{display:flex; align-items:center; gap:7px; font-family:var(--font-ui); font-weight:600; font-size:11.5px; color:var(--ink2); min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis}
+.lc-proj i{width:9px; height:9px; border-radius:50%; flex-shrink:0}
+.lc-due{font-family:var(--font-ui); font-weight:600; font-size:12px; color:var(--ink2)}
+.lc-due.soon{color:#8a5f0e}
+.lc-due.over{color:var(--red); font-weight:700}
+.lc-pri{font-family:var(--font-ui); font-weight:700; font-size:12px; color:var(--red); letter-spacing:.05em}
+.cell-select{
+  width:100%; background:var(--card2); border:1.5px solid var(--line2); border-radius:3px;
+  padding:7px 8px; font-family:var(--font-ui); font-weight:600; font-size:12px; color:var(--ink);
+  cursor:pointer; outline:none; min-height:36px;
+}
+.cell-select:focus{border-color:var(--ink)}
+/* with project column shown */
+@media (min-width:701px){
+  .list-row:has(.lc-proj){grid-template-columns:minmax(140px,1fr) 150px 150px 130px 80px 40px}
+}
+@media (max-width:700px){
+  .list-row{grid-template-columns:1fr 120px 46px; grid-template-areas:"title title due" "status assignee pri"; row-gap:6px}
+  .list-row.list-head{display:none}
+  .lc-title{grid-area:title}
+  .lc-proj{display:none}
+  .lc-status{grid-area:status}
+  .lc-assignee{grid-area:assignee}
+  .lc-due{grid-area:due; text-align:right}
+  .lc-pri{grid-area:pri; text-align:right}
+}
+
+/* swatches (column colors) */
+.swatches{display:flex; gap:9px; flex-wrap:wrap; margin-top:8px}
+.swatch{
+  width:32px; height:32px; border-radius:50%; border:2px solid transparent; cursor:pointer;
+  box-shadow:0 0 0 1.5px var(--line2); transition:transform .12s ease, box-shadow .12s ease;
+}
+.swatch:hover{transform:scale(1.1)}
+.swatch.sel{box-shadow:0 0 0 2px var(--paper), 0 0 0 4px var(--ink); transform:scale(1.08)}
+
+/* people modal */
+.people-list{display:flex; flex-direction:column; gap:6px; max-height:260px; overflow-y:auto}
+.person-row{
+  display:flex; align-items:center; gap:11px; padding:9px 10px;
+  background:var(--card2); border:1px solid var(--line); border-radius:3px;
+}
+.person-name{font-family:var(--font-head); font-weight:600; font-size:15px}
+.person-row .muted{font-family:var(--font-ui); font-size:11.5px}
+.person-del{margin-left:auto; padding:6px 8px}
 
 /* ---------- timeline ---------- */
 .tl-wrap{overflow-x:auto; background:var(--card); border:1.5px solid var(--line2); border-radius:var(--radius); box-shadow:var(--shadow); padding:6px 0}
@@ -352,6 +455,7 @@ body::before{
     flex:none; width:100%; min-height:60px; color:#b7ab92; border-radius:8px;
     border-top:none; border-left:3px solid transparent;
   }
+  .tab .tab-ico{font-size:16px}
   .tab.active{color:var(--gold); background:rgba(201,145,47,.14); border-left-color:var(--gold)}
   #main{margin-left:96px; max-width:none; padding:28px 34px 60px}
   #topbar{margin-left:96px; padding:12px 24px}
