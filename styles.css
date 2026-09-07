@@ -541,3 +541,7 @@ body::after{
 .who-chip:last-child{padding-left:13px}
 .who-chip:hover{transform:translate(-1px,-1px); box-shadow:3px 3px 0 var(--ink)}
 .who-chip.active{background:var(--ink); color:var(--cream)}
+
+/* today scope toggle */
+.who-sep{width:1px; align-self:stretch; background:var(--ink); opacity:.35; margin:2px 4px}
+.scope-chip{padding-left:13px}
