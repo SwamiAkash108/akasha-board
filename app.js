@@ -646,7 +646,7 @@
     const today = todayStr();
     // assignee filter chips: Everyone + each person + Unassigned
     const chip = (id, label, color) => `<button class="who-chip ${state.todayWho === id ? "active" : ""}" data-who="${id}">${color ? `<span class="avatar" style="background:${color}">${initials(label)}</span>` : ""}${esc(label)}</button>`;
-    const chips = chip("all", "Everyone") +
+    const chips = chip("all", "All people") +
       state.people.map((p) => chip(p.id, p.name, p.color)).join("") +
       chip("none", "Unassigned");
 
@@ -681,7 +681,7 @@
 
     const scopeBtn = (id, label) => `<button class="who-chip scope-chip ${state.todayScope === id ? "active" : ""}" data-scope="${id}">${label}</button>`;
     wrap.innerHTML =
-      `<div class="who-bar">${chips}<span class="who-sep"></span>${scopeBtn("due", "Scheduled")}${scopeBtn("all", "All")}</div>` +
+      `<div class="who-bar">${chips}<span class="who-sep"></span>${scopeBtn("due", "Due soon")}${scopeBtn("all", "All tasks")}</div>` +
       section("Overdue", "over", overdue, "Nothing overdue. Steady.") +
       section("Due today", "soon", dueToday, "Nothing due today.") +
       section("Next 7 days", "", upcoming, "Clear week ahead.") +
