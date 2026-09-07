@@ -169,4 +169,5 @@
   };
 
   window.DB = DB;
+  DB.client = sb;
 })();
