@@ -16,8 +16,10 @@
   };
 
   /* ---------- helpers ---------- */
-  const todayStr = () => new Date().toISOString().slice(0, 10);
-  const addDays = (ds, n) => { const d = new Date(ds + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  // local-timezone date helpers (never UTC — a Berlin evening is still 'today' for the user)
+  const localISODate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const todayStr = () => localISODate(new Date());
+  const addDays = (ds, n) => { const d = new Date(ds + "T00:00:00"); d.setDate(d.getDate() + n); return localISODate(d); };
   const dayDiff = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 864e5);
   const fmtDate = (ds) => ds ? new Date(ds + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "";
   const escAttr = esc;
