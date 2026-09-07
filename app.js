@@ -22,6 +22,21 @@
   const addDays = (ds, n) => { const d = new Date(ds + "T00:00:00"); d.setDate(d.getDate() + n); return localISODate(d); };
   const dayDiff = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 864e5);
   const fmtDate = (ds) => ds ? new Date(ds + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "";
+
+  /* ---------- membership / visibility ---------- */
+  // 'Who you are' lives in localStorage until real auth accounts exist.
+  const myId = () => localStorage.getItem("pm_me") || null;
+  const setMyId = (id) => { if (id) localStorage.setItem("pm_me", id); else localStorage.removeItem("pm_me"); };
+  // A project is hidden when it has a members list and you are not in it.
+  // members null/empty = visible to everyone. No identity set = show all (no lockout before auth exists).
+  const projHidden = (pid) => {
+    const mem = byId(state.projects, pid)?.members;
+    if (!Array.isArray(mem) || mem.length === 0) return false;
+    const me = myId();
+    if (!me) return false;
+    return !mem.includes(me);
+  };
+  const visibleProjects = () => state.projects.filter((p) => !projHidden(p.id));
   const escAttr = esc;
   const byId = (arr, id) => arr.find((x) => x.id === id);
   const initials = (name) => name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
@@ -43,7 +58,7 @@
     if (state.activeProject !== "all") return colsForProject(state.activeProject);
     // union by lowercased name, first occurrence order (seeded projects give classic four first)
     const seen = new Map();
-    const projs = state.projects.map((p) => p.id);
+    const projs = visibleProjects().map((p) => p.id);
     const sorted = [...state.columns].sort((a, b) =>
       projs.indexOf(a.project_id) - projs.indexOf(b.project_id) || a.position - b.position);
     for (const c of sorted) {
@@ -70,7 +85,7 @@
 
   /* ---------- task filtering ---------- */
   function filteredTasks() {
-    let ts = state.tasks;
+    let ts = state.tasks.filter((t) => !projHidden(t.project_id));
     if (state.activeProject !== "all") ts = ts.filter((t) => t.project_id === state.activeProject);
     if (state.search) {
       const q = state.search.toLowerCase();
@@ -84,6 +99,7 @@
 
   /* ---------- render dispatch ---------- */
   function render() {
+    if (state.activeProject !== "all" && projHidden(state.activeProject)) state.activeProject = "all";
     renderChips();
     $("#view-board").classList.toggle("active", state.view === "board");
     $("#view-timeline").classList.toggle("active", state.view === "timeline");
@@ -103,10 +119,11 @@
   function renderChips() {
     const wrap = $("#project-chips");
     wrap.innerHTML = "";
-    const mk = (id, label, color) => {
+    const mk = (id, label, color, restricted) => {
       const b = document.createElement("button");
       b.className = "chip" + (state.activeProject === id ? " active" : "");
-      b.textContent = label;
+      b.textContent = label + (restricted ? " 🔒" : "");
+      if (restricted) b.title = "Restricted: only members see this board";
       if (color) b.style.setProperty("--chip-color", color);
       b.onclick = () => { state.activeProject = id; render(); };
       if (id !== "all") {
@@ -121,7 +138,7 @@
       wrap.appendChild(b);
     };
     mk("all", "All projects");
-    state.projects.forEach((p) => mk(p.id, p.name, p.color));
+    visibleProjects().forEach((p) => mk(p.id, p.name, p.color, Array.isArray(p.members) && p.members.length > 0));
   }
 
   /* ---------- BOARD ---------- */
@@ -617,9 +634,9 @@
 
     // per-project progress
     const pp = $("#chart-projects");
-    const projs = state.activeProject === "all" ? state.projects : state.projects.filter((p) => p.id === state.activeProject);
+    const projs = state.activeProject === "all" ? visibleProjects() : state.projects.filter((p) => p.id === state.activeProject);
     pp.innerHTML = projs.map((p) => {
-      const ts = state.tasks.filter((t) => t.project_id === p.id);
+      const ts = state.tasks.filter((t) => t.project_id === p.id && !projHidden(t.project_id));
       const done = ts.filter((t) => isDoneStage(t.status)).length;
       const pct = ts.length ? Math.round((done / ts.length) * 100) : 0;
       return `<div class="proj-row">
@@ -747,6 +764,7 @@
     m.className = "ctx-menu";
     m.innerHTML = `
       <button class="ctx-item" data-act="rename">✎ Rename</button>
+      <button class="ctx-item" data-act="members">☺ Members</button>
       <button class="ctx-item ctx-danger" data-act="delete">✕ Delete</button>`;
     document.body.appendChild(m);
     projMenuEl = m;
@@ -758,12 +776,45 @@
       const act = e.target.closest(".ctx-item")?.dataset.act;
       closeProjectMenu();
       if (act === "rename") renameProject(id, label);
+      else if (act === "members") openMembersModal(id);
       else if (act === "delete") deleteProject(id, label);
     });
     setTimeout(() => {
       document.addEventListener("click", closeProjectMenu, { once: true });
       document.addEventListener("contextmenu", closeProjectMenu, { once: true });
     }, 0);
+  }
+
+  /* ---------- MEMBERS (project visibility) ---------- */
+  function openMembersModal(id) {
+    const p = byId(state.projects, id);
+    if (!p) return;
+    const mem = Array.isArray(p.members) ? p.members : [];
+    // 'Everyone' is a wildcard assignee, not a real person: excluded from the picker.
+    const roster = state.people.filter((x) => x.name.trim().toLowerCase() !== "everyone");
+    const rows = roster.map((x) => `
+      <label class="member-row">
+        <input type="checkbox" data-mid="${x.id}" ${mem.includes(x.id) ? "checked" : ""}>
+        <span class="avatar" style="background:${x.color}">${initials(x.name)}</span>
+        <span class="person-name">${esc(x.name)}</span>
+      </label>`).join("") || `<div class="empty-hint">No people yet. Add them via the ☺ button first.</div>`;
+    const back = modalShell(`
+      <h3>Members · ${esc(p.name)}</h3>
+      <div class="empty-hint" style="text-align:left; margin:-6px 0 12px">Checked people can see this board.<br>Nothing checked = visible to everyone.</div>
+      <div class="people-list">${rows}</div>
+      <div class="modal-actions">
+        <span class="spacer"></span>
+        <button class="btn-ghost" id="m-cancel">Cancel</button>
+        <button class="btn-accent" id="m-save">Save</button>
+      </div>`);
+    $("#m-cancel", back).onclick = closeModal;
+    $("#m-save", back).onclick = guard(async () => {
+      const members = $$("input[data-mid]:checked", back).map((c) => c.dataset.mid);
+      p.members = members.length ? members : null;
+      await DB.updateProject(id, { members: p.members });
+      closeModal();
+      render();
+    });
   }
 
   async function renameProject(id, oldName) {
@@ -808,11 +859,11 @@
 
   function openTaskModal(task, preset = {}) {
     const isNew = !task;
-    const t = task || { title: "", project_id: state.activeProject !== "all" ? state.activeProject : (state.projects[0] || {}).id, status: preset.status || "To do", priority: 2, start: "", due: "", notes: "", assignees: [] };
+    const t = task || { title: "", project_id: state.activeProject !== "all" && !projHidden(state.activeProject) ? state.activeProject : (visibleProjects()[0] || {}).id, status: preset.status || "To do", priority: 2, start: "", due: "", notes: "", assignees: [] };
     const projCols = colsForProject(t.project_id);
     const stageOpts = (projCols.length ? projCols : visibleStages())
       .map((s) => `<option value="${escAttr(s.name)}" ${String(t.status).toLowerCase() === s.name.toLowerCase() ? "selected" : ""}>${esc(s.name)}</option>`).join("");
-    const projOpts = state.projects
+    const projOpts = visibleProjects()
       .map((p) => `<option value="${p.id}" ${t.project_id === p.id ? "selected" : ""}>${esc(p.name)}</option>`).join("");
     const selPeople = peopleOf(t).map((x) => x.id);
     const peopleOpts = state.people
@@ -959,8 +1010,13 @@
         <button class="btn-danger person-del" data-id="${p.id}">Remove</button>
       </div>`;
     }).join("") || `<div class="empty-hint">No people yet.</div>`;
+    const meOpts = `<option value="">(not set)</option>` + state.people.map((p) => `<option value="${p.id}" ${myId() === p.id ? "selected" : ""}>${esc(p.name)}</option>`).join("");
     const back = modalShell(`
       <h3>People</h3>
+      <label class="me-row">You are
+        <select id="p-me">${meOpts}</select>
+      </label>
+      <div class="empty-hint" style="text-align:left; margin:-4px 0 10px">Used for board visibility (Members). Real accounts come later.</div>
       <div class="people-list">${list}</div>
       <label style="margin-top:16px">Add person<input id="p-name" placeholder="Name"></label>
       <div class="modal-actions">
@@ -969,6 +1025,7 @@
         <button class="btn-accent" id="p-add">Add</button>
       </div>`);
     $("#p-close", back).onclick = closeModal;
+    $("#p-me", back).onchange = (e) => { setMyId(e.target.value); render(); };
     $("#p-add", back).onclick = guard(async () => {
       const name = $("#p-name", back).value.trim();
       if (!name) return;
