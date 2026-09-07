@@ -1,487 +1,849 @@
-/* app.js — Akasha Board UI logic */
+/* app.js — Akasha Board UI logic
+   v4: per-project custom columns, people/assignees, registry list view, search */
 (function () {
   const $ = (s, el) => (el || document).querySelector(s);
   const $$ = (s, el) => [...(el || document).querySelectorAll(s)];
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-  const STATUSES = [
-    { id: "todo", name: "To do", color: "var(--grey)" },
-    { id: "doing", name: "Doing", color: "var(--amber)" },
-    { id: "blocked", name: "Blocked", color: "var(--red)" },
-    { id: "done", name: "Done", color: "var(--green)" },
-  ];
   const PROJECT_COLORS = ["#e8a33d", "#c96f3f", "#7ba05b", "#5b8fa0", "#a05b8f", "#8f7bd8"];
+  const COL_COLORS = ["#8a7f6b", "#c9912f", "#b3352c", "#6b7040", "#2b4361", "#a05b8f", "#5b8fa0", "#c96f3f"];
+  const PERSON_COLORS = ["#b3352c", "#2b4361", "#6b7040", "#c9912f", "#a05b8f", "#5b8fa0", "#c96f3f", "#8f7bd8"];
 
-  const state = { projects: [], tasks: [], updates: [], activeProject: "all", view: "board", modalTask: null };
+  const state = {
+    projects: [], columns: [], people: [], tasks: [], updates: [],
+    activeProject: "all", view: "board", modalTask: null,
+    search: "", hideDone: false,
+  };
 
   /* ---------- helpers ---------- */
   const todayStr = () => new Date().toISOString().slice(0, 10);
   const addDays = (ds, n) => { const d = new Date(ds + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
-  const diffDays = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 864e5);
+  const dayDiff = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 864e5);
   const fmtDate = (ds) => ds ? new Date(ds + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "";
-  const relTime = (iso) => {
-    const s = (Date.now() - new Date(iso).getTime()) / 1e3;
-    if (s < 60) return "now";
-    if (s < 3600) return Math.floor(s / 60) + "m ago";
-    if (s < 86400) return Math.floor(s / 3600) + "h ago";
-    return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  };
-  const projById = (id) => state.projects.find((p) => p.id === id);
-  const projColor = (p, i) => p.color || PROJECT_COLORS[i % PROJECT_COLORS.length];
-  const visibleTasks = () => state.tasks.filter((t) => state.activeProject === "all" || t.project_id === state.activeProject);
-  const toast = (msg) => {
-    let t = $("#toast");
-    if (!t) { t = document.createElement("div"); t.id = "toast"; t.style.cssText = "position:fixed;left:50%;bottom:150px;transform:translateX(-50%);background:#c94f3f;color:#fff;padding:10px 18px;border-radius:10px;z-index:200;font-size:13.5px;box-shadow:0 6px 20px rgba(0,0,0,.4)"; document.body.appendChild(t); }
-    t.textContent = msg; t.style.opacity = "1";
-    clearTimeout(t._tm); t._tm = setTimeout(() => (t.style.opacity = "0"), 3200);
-  };
+  const escAttr = esc;
+  const byId = (arr, id) => arr.find((x) => x.id === id);
+  const initials = (name) => name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 
-  /* ---------- data ---------- */
-  async function reload() {
-    try {
-      const data = await DB.loadAll();
-      state.projects = data.projects;
-      state.tasks = data.tasks;
-      state.updates = data.updates;
-      renderChips(); render();
-    } catch (e) { console.error(e); toast("Couldn't load data"); }
+  const projOf = (t) => byId(state.projects, t.project_id);
+  const personOf = (t) => t.assignee_id ? byId(state.people, t.assignee_id) : null;
+
+  /* ---------- columns model ---------- */
+  // columns for one project, ordered
+  function colsForProject(pid) {
+    return state.columns.filter((c) => c.project_id === pid).sort((a, b) => a.position - b.position);
   }
-
-  /* ---------- project chips ---------- */
-  function renderChips() {
-    const box = $("#project-chips");
-    box.innerHTML = "";
-    const all = document.createElement("button");
-    all.className = "chip" + (state.activeProject === "all" ? " active" : "");
-    all.textContent = "All projects";
-    all.onclick = () => { state.activeProject = "all"; renderChips(); render(); };
-    box.appendChild(all);
-    state.projects.forEach((p, i) => {
-      const c = document.createElement("button");
-      c.className = "chip" + (state.activeProject === p.id ? " active" : "");
-      c.textContent = p.name;
-      if (state.activeProject !== p.id) c.style.borderLeft = `3px solid ${projColor(p, i)}`;
-      c.onclick = () => { state.activeProject = p.id; renderChips(); render(); };
-      box.appendChild(c);
-    });
-  }
-
-  /* ---------- board ---------- */
-  function renderBoard() {
-    const board = $("#board");
-    board.innerHTML = "";
-    const tasks = visibleTasks();
-    for (const st of STATUSES) {
-      const col = document.createElement("div");
-      col.className = "col"; col.dataset.status = st.id;
-      const list = tasks.filter((t) => t.status === st.id)
-        .sort((a, b) => (a.position - b.position) || String(a.created_at).localeCompare(String(b.created_at)));
-      col.innerHTML = `<div class="col-head"><span class="col-dot" style="background:${st.color}"></span>
-        <span class="col-name">${st.name}</span><span class="col-count">${list.length}</span></div>
-        <div class="col-body"></div>`;
-      const body = $(".col-body", col);
-      for (const t of list) body.appendChild(cardEl(t));
-      const add = document.createElement("button");
-      add.className = "add-task"; add.textContent = "+ add task";
-      add.onclick = () => openModal(null, st.id);
-      col.appendChild(add);
-      board.appendChild(col);
+  // stages to display for current filter. "all" = union of stage names in canonical order.
+  function visibleStages() {
+    if (state.activeProject !== "all") return colsForProject(state.activeProject);
+    // union by lowercased name, first occurrence order (seeded projects give classic four first)
+    const seen = new Map();
+    const projs = state.projects.map((p) => p.id);
+    const sorted = [...state.columns].sort((a, b) =>
+      projs.indexOf(a.project_id) - projs.indexOf(b.project_id) || a.position - b.position);
+    for (const c of sorted) {
+      const key = c.name.toLowerCase();
+      if (!seen.has(key)) seen.set(key, c);
     }
+    return [...seen.values()];
+  }
+  function stageColor(name, pid) {
+    const key = String(name).toLowerCase();
+    let c;
+    if (pid && pid !== "all") c = colsForProject(pid).find((x) => x.name.toLowerCase() === key);
+    if (!c) c = visibleStages().find((x) => x.name.toLowerCase() === key);
+    return c ? c.color : "#8a7f6b";
+  }
+  function isDoneStage(name) {
+    const key = String(name).toLowerCase();
+    return key === "done" || key.startsWith("done") || key.includes("complete") || key.includes("publish") || key.includes("shipped");
+  }
+  function firstStage(pid) {
+    const cols = colsForProject(pid);
+    return cols.length ? cols[0].name : "To do";
   }
 
-  function cardEl(t) {
-    const el = document.createElement("div");
-    el.className = "card"; el.dataset.id = t.id;
-    const p = projById(t.project_id);
-    const pi = state.projects.indexOf(p);
-    let meta = "";
-    if (t.due) {
-      const left = diffDays(todayStr(), t.due);
-      const cls = t.status === "done" ? "" : left < 0 ? " over" : left <= 2 ? " soon" : "";
-      meta += `<span class="badge badge-due${cls}">${left < 0 && t.status !== "done" ? Math.abs(left) + "d over" : fmtDate(t.due)}</span>`;
+  /* ---------- task filtering ---------- */
+  function filteredTasks() {
+    let ts = state.tasks;
+    if (state.activeProject !== "all") ts = ts.filter((t) => t.project_id === state.activeProject);
+    if (state.search) {
+      const q = state.search.toLowerCase();
+      ts = ts.filter((t) =>
+        t.title.toLowerCase().includes(q) ||
+        (t.notes || "").toLowerCase().includes(q) ||
+        (projOf(t)?.name || "").toLowerCase().includes(q));
     }
-    if (t.priority === 3) meta += `<span class="badge badge-pri3">▲ high</span>`;
-    if (t.priority === 1) meta += `<span class="badge badge-pri1">▽ low</span>`;
-    if (state.activeProject === "all" && p) meta += `<span class="card-proj" style="color:${projColor(p, pi)}">${esc(p.name)}</span>`;
-    el.innerHTML = `<div class="card-title">${esc(t.title)}</div>${meta ? `<div class="card-meta">${meta}</div>` : ""}`;
-    attachDrag(el, t);
-    return el;
+    return ts;
   }
 
-  /* pointer drag & drop (mouse + touch) */
-  function attachDrag(el, task) {
-    let dragging = false, moved = false, ghost = null, pressTimer = null, startX = 0, startY = 0, pid = null;
-
-    const startDrag = (e) => {
-      dragging = true;
-      el.classList.add("dragging");
-      ghost = document.createElement("div");
-      ghost.className = "card-ghost";
-      el.after(ghost);
-      moveGhost(e.clientX, e.clientY);
-    };
-    const moveGhost = (x, y) => {
-      const under = document.elementFromPoint(x, y);
-      const col = under && under.closest(".col");
-      if (!col) return;
-      const body = $(".col-body", col);
-      const after = [...body.querySelectorAll(".card:not(.dragging)")]
-        .find((c) => { const r = c.getBoundingClientRect(); return y < r.top + r.height / 2; });
-      if (after) body.insertBefore(ghost, after); else body.appendChild(ghost);
-    };
-    const onMove = (e) => {
-      if (!dragging) {
-        if (Math.hypot(e.clientX - startX, e.clientY - startY) > 6) {
-          clearTimeout(pressTimer);
-          if (e.pointerType === "mouse") startDrag(e); else pid = null;
-        }
-        return;
-      }
-      moved = true;
-      e.preventDefault();
-      moveGhost(e.clientX, e.clientY);
-    };
-    const onUp = async (e) => {
-      clearTimeout(pressTimer);
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
-      if (!dragging) { if (pid === e.pointerId && !moved) openModal(task); return; }
-      el.classList.remove("dragging");
-      if (!ghost) return;
-      const col = ghost.closest(".col");
-      const body = ghost.parentElement;
-      const next = ghost.nextElementSibling;
-      const prev = ghost.previousElementSibling;
-      const status = col ? col.dataset.status : task.status;
-      const posPrev = prev && prev.dataset ? (state.tasks.find((t) => t.id === prev.dataset.id) || {}).position : null;
-      const posNext = next && next.dataset ? (state.tasks.find((t) => t.id === next.dataset.id) || {}).position : null;
-      let position = Date.now();
-      if (posPrev != null && posNext != null) position = (posPrev + posNext) / 2;
-      else if (posPrev != null) position = posPrev + 1;
-      else if (posNext != null) position = posNext - 1;
-      ghost.remove(); ghost = null;
-      task.status = status; task.position = position;
-      renderBoard();
-      try { await DB.updateTask(task.id, { status, position }); } catch (err) { toast("Save failed"); reload(); }
-    };
-
-    el.addEventListener("pointerdown", (e) => {
-      if (e.button && e.button !== 0) return;
-      pid = e.pointerId; moved = false; startX = e.clientX; startY = e.clientY;
-      pressTimer = setTimeout(() => { if (pid != null) startDrag(e); }, e.pointerType === "mouse" ? 140 : 260);
-      window.addEventListener("pointermove", onMove, { passive: false });
-      window.addEventListener("pointerup", onUp);
-      window.addEventListener("pointercancel", onUp);
-    });
-  }
-
-  /* ---------- modal ---------- */
-  function openModal(task, presetStatus) {
-    state.modalTask = task || null;
-    $("#modal-title").textContent = task ? "Edit task" : "New task";
-    $("#f-title").value = task ? task.title : "";
-    $("#f-notes").value = task ? (task.notes || "") : "";
-    $("#f-status").value = task ? task.status : (presetStatus || "todo");
-    $("#f-priority").value = String(task ? task.priority : 2);
-    $("#f-start").value = task && task.start ? task.start : "";
-    $("#f-due").value = task && task.due ? task.due : "";
-    $("#f-delete").style.visibility = task ? "visible" : "hidden";
-    // project selector
-    let sel = $("#f-project");
-    if (!sel) {
-      const lab = document.createElement("label");
-      lab.textContent = "Project";
-      sel = document.createElement("select"); sel.id = "f-project";
-      lab.appendChild(sel);
-      $("#modal .modal-grid").before(lab);
-    }
-    sel.innerHTML = state.projects.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("");
-    sel.value = task ? task.project_id : (state.activeProject !== "all" ? state.activeProject : (state.projects[0] || {}).id);
-    $("#modal-backdrop").classList.remove("hidden");
-    setTimeout(() => $("#f-title").focus(), 50);
-  }
-  function closeModal() { $("#modal-backdrop").classList.add("hidden"); state.modalTask = null; }
-
-  async function saveModal() {
-    const title = $("#f-title").value.trim();
-    if (!title) { $("#f-title").focus(); return; }
-    const row = {
-      title,
-      notes: $("#f-notes").value.trim(),
-      status: $("#f-status").value,
-      priority: parseInt($("#f-priority").value, 10),
-      start: $("#f-start").value || null,
-      due: $("#f-due").value || null,
-      project_id: $("#f-project").value,
-    };
-    closeModal();
-    try {
-      if (state.modalTask) {
-        Object.assign(state.modalTask, row);
-        render();
-        await DB.updateTask(state.modalTask.id, row);
-      } else {
-        const t = await DB.addTask(row);
-        state.tasks.push(t);
-        render();
-      }
-    } catch (e) { console.error(e); toast("Save failed"); reload(); }
-  }
-
-  /* ---------- timeline ---------- */
-  function renderTimeline() {
-    const tl = $("#timeline");
-    const uns = $("#unscheduled");
-    tl.innerHTML = ""; uns.innerHTML = "";
-    const tasks = visibleTasks().filter((t) => t.status !== "done" || true);
-    const sched = tasks.filter((t) => t.due || t.start);
-    const unsTasks = tasks.filter((t) => !t.due && !t.start && t.status !== "done");
-
-    if (!sched.length) {
-      tl.innerHTML = `<p class="muted" style="padding:24px 4px">No scheduled tasks yet. Give tasks a start and due date and they appear here.</p>`;
-    } else {
-      let min = null, max = null;
-      for (const t of sched) {
-        const s = t.start || t.due, e2 = t.due || t.start;
-        if (!min || s < min) min = s;
-        if (!max || e2 > max) max = e2;
-      }
-      min = addDays(min, -2); max = addDays(max, 4);
-      const t0 = todayStr();
-      if (t0 < min) min = addDays(t0, -2);
-      if (t0 > max) max = addDays(t0, 4);
-      const span = diffDays(min, max) + 1;
-      const DW = 40, LABEL_W = 190;
-
-      // header
-      const head = document.createElement("div");
-      head.className = "tl-header";
-      head.style.paddingLeft = LABEL_W + "px";
-      for (let i = 0; i < span; i++) {
-        const ds = addDays(min, i);
-        const dow = new Date(ds + "T00:00:00").getDay();
-        const cell = document.createElement("div");
-        cell.className = "tl-day" + ((dow === 0 || dow === 6) ? " wknd" : "") + (ds === t0 ? " today" : "");
-        cell.style.width = DW + "px";
-        cell.textContent = new Date(ds + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", weekday: "narrow" });
-        head.appendChild(cell);
-      }
-      tl.appendChild(head);
-      tl.style.width = LABEL_W + span * DW + "px";
-
-      const mkGrid = (track) => {
-        for (let i = 0; i < span; i++) {
-          const ds = addDays(min, i);
-          const dow = new Date(ds + "T00:00:00").getDay();
-          const g = document.createElement("div");
-          g.className = "tl-gridline" + ((dow === 0 || dow === 6) ? " wknd" : "");
-          g.style.left = i * DW + "px";
-          track.appendChild(g);
-        }
-        if (t0 >= min && t0 <= max) {
-          const td = document.createElement("div");
-          td.className = "tl-today"; td.style.left = diffDays(min, t0) * DW + "px";
-          track.appendChild(td);
-        }
-      };
-
-      const groups = state.activeProject === "all"
-        ? state.projects.map((p, i) => ({ p, i, tasks: sched.filter((t) => t.project_id === p.id) })).filter((g) => g.tasks.length)
-        : [{ p: projById(state.activeProject), i: state.projects.indexOf(projById(state.activeProject)), tasks: sched }];
-
-      for (const g of groups) {
-        if (state.activeProject === "all") {
-          const gh = document.createElement("div");
-          gh.className = "tl-group";
-          gh.innerHTML = `<span class="gdot" style="background:${projColor(g.p, g.i)}"></span>${esc(g.p.name)}`;
-          tl.appendChild(gh);
-        }
-        for (const t of g.tasks.sort((a, b) => String(a.start || a.due).localeCompare(String(b.start || b.due)))) {
-          const row = document.createElement("div");
-          row.className = "tl-row";
-          const lab = document.createElement("div");
-          lab.className = "tl-label"; lab.style.width = LABEL_W + "px";
-          lab.textContent = t.title; lab.title = t.title;
-          const track = document.createElement("div");
-          track.className = "tl-track"; track.style.width = span * DW + "px";
-          mkGrid(track);
-          const s = t.start || t.due, e2 = t.due || t.start;
-          const bar = document.createElement("div");
-          bar.className = "tl-bar" + (t.status === "done" ? " done" : (t.due && t.due < t0 ? " overdue" : ""));
-          bar.style.left = diffDays(min, s) * DW + 2 + "px";
-          bar.style.width = Math.max(diffDays(s, e2) + 1, 1) * DW - 5 + "px";
-          const base = state.activeProject === "all" ? projColor(g.p, g.i) : "var(--amber)";
-          bar.style.background = bar.classList.contains("overdue") ? "" : base;
-          bar.textContent = t.title;
-          bar.onclick = () => openModal(t);
-          track.appendChild(bar);
-          row.appendChild(lab); row.appendChild(track);
-          tl.appendChild(row);
-        }
-      }
-    }
-
-    if (unsTasks.length) {
-      uns.innerHTML = `<h4>Unscheduled</h4>`;
-      for (const t of unsTasks) {
-        const item = document.createElement("div");
-        item.className = "uns-item";
-        item.innerHTML = `<span>${esc(t.title)}</span>`;
-        const b = document.createElement("button");
-        b.className = "btn-ghost"; b.textContent = "Set dates";
-        b.onclick = () => openModal(t);
-        item.appendChild(b);
-        uns.appendChild(item);
-      }
-    }
-  }
-
-  /* ---------- charts ---------- */
-  function renderCharts() {
-    const box = $("#charts");
-    box.innerHTML = "";
-    const tasks = visibleTasks();
-
-    // donut: by status
-    const byStatus = STATUSES.map((st) => ({ ...st, n: tasks.filter((t) => t.status === st.id).length }));
-    const total = tasks.length || 1;
-    const R = 52, C = 2 * Math.PI * R;
-    let acc = 0;
-    const colorMap = { todo: "#8a7f6b", doing: "#c9912f", blocked: "#b3352c", done: "#6b7040" };
-    const arcs = byStatus.map((s) => {
-      const frac = s.n / total;
-      const seg = `<circle r="${R}" cx="70" cy="70" fill="none" stroke="${colorMap[s.id]}" stroke-width="17"
-        stroke-dasharray="${Math.max(frac * C - 3, 0)} ${C}" stroke-dashoffset="${-acc * C}"
-        transform="rotate(-90 70 70)" stroke-linecap="round" style="transition:stroke-dasharray .6s ease"/>`;
-      acc += frac; return seg;
-    }).join("");
-    const donut = document.createElement("div");
-    donut.className = "panel";
-    donut.innerHTML = `<h3>By status</h3><div class="donut-wrap">
-      <svg width="140" height="140" viewBox="0 0 140 140">${arcs}
-        <text x="70" y="68" text-anchor="middle" class="donut-center" fill="var(--ink)" font-size="24">${tasks.length}</text>
-        <text x="70" y="86" text-anchor="middle" class="donut-center-sub" fill="var(--faint)" font-size="9">TASKS</text></svg>
-      <div class="donut-legend">${byStatus.map((s) => `<div class="li"><span class="sw" style="background:${colorMap[s.id]}"></span>${s.name}<span class="n">${s.n}</span></div>`).join("")}</div>
-    </div>`;
-    box.appendChild(donut);
-
-    // activity: done in last 14 days
-    const days = [...Array(14)].map((_, i) => addDays(todayStr(), i - 13));
-    const donePerDay = days.map((ds) => state.tasks.filter((t) => t.status === "done" && String(t.updated_at || "").slice(0, 10) === ds).length
-      + state.updates.filter((u) => String(u.created_at).slice(0, 10) === ds).length);
-    const maxA = Math.max(...donePerDay, 1);
-    const act = document.createElement("div");
-    act.className = "panel";
-    act.innerHTML = `<h3>Activity, last 14 days</h3><div class="bars">${
-      days.map((ds, i) => `<div class="bar-col"><div class="bar" style="height:${Math.round((donePerDay[i] / maxA) * 100)}%" title="${ds}: ${donePerDay[i]}"></div><div class="bar-lab">${ds.slice(8)}</div></div>`).join("")
-    }</div>`;
-    box.appendChild(act);
-
-    // per-project progress
-    const prog = document.createElement("div");
-    prog.className = "panel";
-    const projs = state.activeProject === "all" ? state.projects : state.projects.filter((p) => p.id === state.activeProject);
-    prog.innerHTML = `<h3>Progress per project</h3>` + (projs.length ? projs.map((p, i) => {
-      const pt = state.tasks.filter((t) => t.project_id === p.id);
-      const done = pt.filter((t) => t.status === "done").length;
-      const pct = pt.length ? Math.round((done / pt.length) * 100) : 0;
-      return `<div class="proj-row"><div class="pr-head"><span>${esc(p.name)}</span><span class="pct">${done}/${pt.length} · ${pct}%</span></div>
-        <div class="progress"><i style="width:${pct}%;background:${projColor(p, state.projects.indexOf(p))}"></i></div></div>`;
-    }).join("") : `<p class="muted">No projects yet.</p>`);
-    box.appendChild(prog);
-
-    // overdue
-    const over = tasks.filter((t) => t.due && t.due < todayStr() && t.status !== "done")
-      .sort((a, b) => a.due.localeCompare(b.due));
-    const ov = document.createElement("div");
-    ov.className = "panel";
-    ov.innerHTML = `<h3>Overdue</h3>` + (over.length ? over.map((t) => {
-      const p = projById(t.project_id);
-      return `<div class="over-item"><span>${esc(t.title)}</span><span class="over-days">${diffDays(t.due, todayStr())}d over${p ? " · " + esc(p.name) : ""}</span></div>`;
-    }).join("") : `<p class="muted">Nothing overdue. 🙏</p>`);
-    box.appendChild(ov);
-  }
-
-  /* ---------- updates ---------- */
-  function renderUpdates() {
-    const box = $("#updates");
-    box.innerHTML = "";
-    const list = state.updates.filter((u) => state.activeProject === "all" || u.project_id === state.activeProject);
-    if (!list.length) { box.innerHTML = `<p class="muted" style="text-align:center;padding:30px">No updates yet. Post one above, or send a voice note to @fluso_pm_bot.</p>`; return; }
-    for (const u of list) {
-      const p = u.project_id ? projById(u.project_id) : null;
-      const el = document.createElement("div");
-      el.className = "upd" + (u.author === "fluso" ? " fluso-post" : "");
-      el.innerHTML = `<div class="upd-head">
-        <span class="upd-author ${esc(u.author)}">${u.author === "fluso" ? "Fluso" : esc(u.author)}</span>
-        ${p ? `<span class="upd-proj">${esc(p.name)}</span>` : ""}
-        <span class="upd-time">${relTime(u.created_at)}</span></div>
-        <div class="upd-text">${esc(u.text)}</div>`;
-      box.appendChild(el);
-    }
-  }
-
-  /* ---------- router / render ---------- */
+  /* ---------- render dispatch ---------- */
   function render() {
+    renderChips();
+    $("#view-board").classList.toggle("active", state.view === "board");
+    $("#view-timeline").classList.toggle("active", state.view === "timeline");
+    $("#view-charts").classList.toggle("active", state.view === "charts");
+    $("#view-updates").classList.toggle("active", state.view === "updates");
+    $("#view-list").classList.toggle("active", state.view === "list");
+    $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === state.view));
     if (state.view === "board") renderBoard();
     else if (state.view === "timeline") renderTimeline();
     else if (state.view === "charts") renderCharts();
     else if (state.view === "updates") renderUpdates();
-  }
-  function switchView(v) {
-    state.view = v;
-    $$(".view").forEach((el) => el.classList.toggle("active", el.id === "view-" + v));
-    $$(".tab").forEach((el) => el.classList.toggle("active", el.dataset.view === v));
-    render();
+    else if (state.view === "list") renderList();
   }
 
-  /* ---------- wire up ---------- */
-  function wire() {
-    $$(".tab").forEach((b) => (b.onclick = () => switchView(b.dataset.view)));
-    $("#fab").onclick = () => openModal(null);
-    $("#f-save").onclick = saveModal;
-    $("#f-cancel").onclick = closeModal;
-    $("#modal-backdrop").addEventListener("click", (e) => { if (e.target.id === "modal-backdrop") closeModal(); });
-    $("#f-delete").onclick = async () => {
-      const t = state.modalTask;
-      if (!t) return;
-      closeModal();
-      state.tasks = state.tasks.filter((x) => x.id !== t.id);
-      render();
-      try { await DB.deleteTask(t.id); } catch (e) { toast("Delete failed"); reload(); }
+  function renderChips() {
+    const wrap = $("#project-chips");
+    wrap.innerHTML = "";
+    const mk = (id, label, color) => {
+      const b = document.createElement("button");
+      b.className = "chip" + (state.activeProject === id ? " active" : "");
+      b.textContent = label;
+      if (color) b.style.setProperty("--chip-color", color);
+      b.onclick = () => { state.activeProject = id; render(); };
+      wrap.appendChild(b);
     };
-    $("#f-title").addEventListener("keydown", (e) => { if (e.key === "Enter") saveModal(); });
-    $("#upd-send").onclick = postUpdate;
-    $("#upd-input").addEventListener("keydown", (e) => { if (e.key === "Enter") postUpdate(); });
-    $("#btn-refresh").onclick = () => { $("#btn-refresh").classList.add("spin"); setTimeout(() => $("#btn-refresh").classList.remove("spin"), 700); reload(); };
+    mk("all", "All projects");
+    state.projects.forEach((p) => mk(p.id, p.name, p.color));
   }
+
+  /* ---------- BOARD ---------- */
+  function renderBoard() {
+    const board = $("#board");
+    board.innerHTML = "";
+    const stages = visibleStages();
+    const tasks = filteredTasks();
+
+    stages.forEach((stage) => {
+      const key = stage.name.toLowerCase();
+      const colTasks = tasks.filter((t) => String(t.status).toLowerCase() === key)
+        .sort((a, b) => a.position - b.position);
+      const col = document.createElement("div");
+      col.className = "col";
+      col.dataset.stage = stage.name;
+      col.style.borderTopColor = stage.color;
+      col.innerHTML = `
+        <div class="col-head">
+          <span class="col-dot" style="background:${stage.color}"></span>
+          <span class="col-name">${esc(stage.name)}</span>
+          <span class="col-count">${colTasks.length}</span>
+          ${state.activeProject !== "all" ? `<button class="col-edit" title="Edit column">✎</button>` : ""}
+        </div>
+        <div class="col-body"></div>
+        <button class="add-task">+ Add task</button>`;
+      const body = $(".col-body", col);
+
+      colTasks.forEach((t) => body.appendChild(taskCard(t)));
+
+      // events
+      $(".add-task", col).onclick = () => openTaskModal(null, { status: stage.name });
+      const editBtn = $(".col-edit", col);
+      if (editBtn) editBtn.onclick = () => openColumnModal(stage);
+
+      // dnd
+      col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("drag-over"); });
+      col.addEventListener("dragleave", () => col.classList.remove("drag-over"));
+      col.addEventListener("drop", (e) => {
+        e.preventDefault(); col.classList.remove("drag-over");
+        const id = e.dataTransfer.getData("text/plain");
+        const t = byId(state.tasks, id);
+        if (!t) return;
+        moveTaskToStage(t, stage.name, body);
+      });
+
+      // touch dnd (pointer events)
+      enableTouchDnD(col, body, stage.name);
+      board.appendChild(col);
+    });
+
+    // add-column button (only when a project is selected)
+    if (state.activeProject !== "all") {
+      const add = document.createElement("button");
+      add.className = "add-col";
+      add.innerHTML = `<span class="add-col-plus">+</span><span>Add column</span>`;
+      add.onclick = () => openColumnModal(null);
+      board.appendChild(add);
+    } else if (!stages.length) {
+      board.innerHTML = `<div class="empty-hint">No columns yet. Select a project to create its stages, or add a project with the + button.</div>`;
+    }
+  }
+
+  function taskCard(t) {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.draggable = true;
+    card.dataset.id = t.id;
+    const p = projOf(t);
+    const person = personOf(t);
+    const done = isDoneStage(t.status);
+    let badges = "";
+    if (t.due) {
+      const diff = dayDiff(todayStr(), t.due);
+      const cls = !done && diff < 0 ? "over" : !done && diff <= 3 ? "soon" : "";
+      const label = diff === 0 ? "today" : fmtDate(t.due);
+      badges += `<span class="badge badge-due ${cls}">${label}</span>`;
+    }
+    if (t.priority === 3) badges += `<span class="badge badge-pri3">!!!</span>`;
+    else if (t.priority === 1) badges += `<span class="badge badge-pri1">low</span>`;
+    card.innerHTML = `
+      <div class="card-title">${esc(t.title)}</div>
+      <div class="card-meta">
+        ${badges}
+        ${person ? `<span class="avatar" style="background:${person.color}" title="${escAttr(person.name)}">${initials(person.name)}</span>` : ""}
+        ${state.activeProject === "all" && p ? `<span class="card-proj">${esc(p.name)}</span>` : ""}
+      </div>`;
+    card.onclick = () => openTaskModal(t);
+    card.addEventListener("dragstart", (e) => {
+      e.dataTransfer.setData("text/plain", t.id);
+      e.dataTransfer.effectAllowed = "move";
+      setTimeout(() => card.classList.add("dragging"), 0);
+    });
+    card.addEventListener("dragend", () => card.classList.remove("dragging"));
+    return card;
+  }
+
+  async function moveTaskToStage(task, stageName, bodyEl) {
+    // compute position: append at end of target column
+    const siblings = state.tasks
+      .filter((x) => String(x.status).toLowerCase() === stageName.toLowerCase() && x.id !== task.id)
+      .sort((a, b) => a.position - b.position);
+    const pos = siblings.length ? siblings[siblings.length - 1].position + 1 : Date.now();
+    task.status = stageName; task.position = pos;
+    render();
+    await DB.updateTask(task.id, { status: stageName, position: pos });
+  }
+
+  /* touch drag: long-press then move */
+  function enableTouchDnD(col, body, stageName) {
+    // handled per-card below in bindTouch
+    $$(".card", body).forEach((card) => bindTouch(card, body, stageName));
+  }
+  let touchDrag = null;
+  function bindTouch(card, body, stageName) {
+    card.addEventListener("pointerdown", (e) => {
+      if (e.pointerType !== "touch") return;
+      const id = card.dataset.id;
+      const startX = e.clientX, startY = e.clientY;
+      let timer = setTimeout(() => {
+        touchDrag = { id, card };
+        card.classList.add("dragging");
+        navigator.vibrate && navigator.vibrate(20);
+      }, 350);
+      const cancel = () => { clearTimeout(timer); };
+      const move = (ev) => {
+        if (Math.abs(ev.clientX - startX) > 10 || Math.abs(ev.clientY - startY) > 10) cancel();
+        if (!touchDrag) return;
+        ev.preventDefault();
+        const el = document.elementFromPoint(ev.clientX, ev.clientY);
+        const targetCol = el && el.closest ? el.closest(".col") : null;
+        $$(".col").forEach((c) => c.classList.toggle("drag-over", c === targetCol));
+      };
+      const up = async (ev) => {
+        cancel();
+        card.removeEventListener("pointermove", move);
+        card.removeEventListener("pointerup", up);
+        card.removeEventListener("pointercancel", up);
+        if (!touchDrag) return;
+        const el = document.elementFromPoint(ev.clientX, ev.clientY);
+        const targetCol = el && el.closest ? el.closest(".col") : null;
+        $$(".col").forEach((c) => c.classList.remove("drag-over"));
+        card.classList.remove("dragging");
+        const t = byId(state.tasks, touchDrag.id);
+        touchDrag = null;
+        if (t && targetCol && targetCol.dataset.stage) {
+          await moveTaskToStage(t, targetCol.dataset.stage, $(".col-body", targetCol));
+        } else {
+          render();
+        }
+      };
+      card.addEventListener("pointermove", move, { passive: false });
+      card.addEventListener("pointerup", up);
+      card.addEventListener("pointercancel", up);
+    });
+  }
+
+  /* ---------- LIST (Registry) ---------- */
+  function renderList() {
+    const wrap = $("#list-wrap");
+    const tasks = filteredTasks();
+    const stages = visibleStages();
+    const visible = state.hideDone ? tasks.filter((t) => !isDoneStage(t.status)) : tasks;
+    const sorted = [...visible].sort((a, b) => {
+      const pa = projOf(a)?.name || "", pb = projOf(b)?.name || "";
+      if (pa !== pb) return pa.localeCompare(pb);
+      const sa = stages.findIndex((s) => s.name.toLowerCase() === String(a.status).toLowerCase());
+      const sb = stages.findIndex((s) => s.name.toLowerCase() === String(b.status).toLowerCase());
+      if (sa !== sb) return sa - sb;
+      return (a.due || "9999") < (b.due || "9999") ? -1 : 1;
+    });
+
+    let html = `
+      <div class="list-toolbar">
+        <input id="list-search" type="search" placeholder="Search tasks…" value="${escAttr(state.search)}">
+        <label class="hide-done"><input type="checkbox" id="hide-done" ${state.hideDone ? "checked" : ""}> hide done</label>
+      </div>
+      <div class="list-table">
+        <div class="list-row list-head">
+          <span class="lc-title">Task</span>
+          ${state.activeProject === "all" ? `<span class="lc-proj">Project</span>` : ""}
+          <span class="lc-status">Status</span>
+          <span class="lc-assignee">Who</span>
+          <span class="lc-due">Due</span>
+          <span class="lc-pri">Pri</span>
+        </div>`;
+
+    if (!sorted.length) {
+      html += `<div class="empty-hint">Nothing here. ${state.search ? "Try a different search." : "Add a task with the + button."}</div>`;
+    }
+
+    sorted.forEach((t) => {
+      const p = projOf(t);
+      const person = personOf(t);
+      const done = isDoneStage(t.status);
+      const projCols = colsForProject(t.project_id);
+      const stageOpts = (projCols.length ? projCols : stages)
+        .map((s) => `<option value="${escAttr(s.name)}" ${String(t.status).toLowerCase() === s.name.toLowerCase() ? "selected" : ""}>${esc(s.name)}</option>`).join("");
+      const peopleOpts = `<option value="">—</option>` + state.people
+        .map((pe) => `<option value="${pe.id}" ${t.assignee_id === pe.id ? "selected" : ""}>${esc(pe.name)}</option>`).join("");
+      let dueCls = "";
+      if (t.due && !done) {
+        const diff = dayDiff(todayStr(), t.due);
+        dueCls = diff < 0 ? "over" : diff <= 3 ? "soon" : "";
+      }
+      html += `
+        <div class="list-row ${done ? "is-done" : ""}" data-id="${t.id}">
+          <span class="lc-title" data-act="edit">${esc(t.title)}</span>
+          ${state.activeProject === "all" ? `<span class="lc-proj">${p ? `<i style="background:${p.color}"></i>${esc(p.name)}` : ""}</span>` : ""}
+          <span class="lc-status">
+            <select class="cell-select status-select" data-id="${t.id}" style="border-color:${stageColor(t.status, t.project_id)}">${stageOpts}</select>
+          </span>
+          <span class="lc-assignee">
+            <select class="cell-select assignee-select" data-id="${t.id}">${peopleOpts}</select>
+          </span>
+          <span class="lc-due ${dueCls}">${t.due ? fmtDate(t.due) : "—"}</span>
+          <span class="lc-pri">${"!".repeat(t.priority)}</span>
+        </div>`;
+    });
+    html += `</div>`;
+    wrap.innerHTML = html;
+
+    $("#list-search").addEventListener("input", (e) => {
+      state.search = e.target.value;
+      clearTimeout(state._st);
+      state._st = setTimeout(() => {
+        const el = $("#list-search");
+        renderList();
+        const el2 = $("#list-search");
+        el2.focus(); el2.setSelectionRange(el2.value.length, el2.value.length);
+      }, 250);
+    });
+    $("#hide-done").addEventListener("change", (e) => { state.hideDone = e.target.checked; renderList(); });
+    $$(".status-select", wrap).forEach((sel) => sel.addEventListener("change", async (e) => {
+      const t = byId(state.tasks, sel.dataset.id);
+      if (!t) return;
+      t.status = sel.value;
+      await DB.updateTask(t.id, { status: sel.value });
+      renderList();
+    }));
+    $$(".assignee-select", wrap).forEach((sel) => sel.addEventListener("change", async (e) => {
+      const t = byId(state.tasks, sel.dataset.id);
+      if (!t) return;
+      t.assignee_id = sel.value || null;
+      await DB.updateTask(t.id, { assignee_id: t.assignee_id });
+    }));
+    $$('[data-act="edit"]', wrap).forEach((el) => el.addEventListener("click", () => {
+      const t = byId(state.tasks, el.closest(".list-row").dataset.id);
+      if (t) openTaskModal(t);
+    }));
+  }
+
+  /* ---------- TIMELINE ---------- */
+  function renderTimeline() {
+    const wrap = $("#timeline-wrap");
+    wrap.innerHTML = "";
+    const tasks = filteredTasks().filter((t) => t.start || t.due);
+    const uns = filteredTasks().filter((t) => !t.start && !t.due);
+
+    if (!tasks.length && !uns.length) {
+      wrap.innerHTML = `<div class="empty-hint">No tasks yet.</div>`;
+      $("#uns-wrap").innerHTML = "";
+      return;
+    }
+
+    let min = todayStr(), max = todayStr();
+    tasks.forEach((t) => {
+      const s = t.start || t.due, e = t.due || t.start;
+      if (s < min) min = s; if (e > max) max = e;
+    });
+    min = addDays(min, -3); max = addDays(max, 5);
+    const days = dayDiff(min, max) + 1;
+    const dayW = 38;
+
+    const tl = document.createElement("div");
+    tl.className = "timeline";
+    tl.style.width = `${190 + days * dayW}px`;
+
+    // header
+    const head = document.createElement("div");
+    head.className = "tl-header";
+    head.style.paddingLeft = "190px";
+    for (let i = 0; i < days; i++) {
+      const ds = addDays(min, i);
+      const d = new Date(ds + "T00:00:00");
+      const wknd = d.getDay() === 0 || d.getDay() === 6;
+      head.innerHTML += `<div class="tl-day ${wknd ? "wknd" : ""} ${ds === todayStr() ? "today" : ""}" style="width:${dayW}px">${d.getDate()}<br>${d.toLocaleDateString("en", { weekday: "narrow" })}</div>`;
+    }
+    tl.appendChild(head);
+
+    // group by project
+    const groups = new Map();
+    tasks.forEach((t) => {
+      const k = t.project_id || "none";
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(t);
+    });
+
+    groups.forEach((ts, pid) => {
+      const p = byId(state.projects, pid);
+      const g = document.createElement("div");
+      g.className = "tl-group";
+      g.innerHTML = `<span class="gdot" style="background:${p ? p.color : "#8a7f6b"}"></span>${p ? esc(p.name) : "No project"}`;
+      tl.appendChild(g);
+
+      ts.sort((a, b) => ((a.start || a.due) < (b.start || b.due) ? -1 : 1)).forEach((t) => {
+        const row = document.createElement("div");
+        row.className = "tl-row";
+        const label = document.createElement("div");
+        label.className = "tl-label";
+        label.textContent = t.title;
+        label.title = t.title;
+        row.appendChild(label);
+        const track = document.createElement("div");
+        track.className = "tl-track";
+        track.style.width = `${days * dayW}px`;
+
+        for (let i = 0; i < days; i++) {
+          const ds = addDays(min, i);
+          const d = new Date(ds + "T00:00:00");
+          const gl = document.createElement("div");
+          gl.className = "tl-gridline" + (d.getDay() === 0 || d.getDay() === 6 ? " wknd" : "");
+          gl.style.left = `${i * dayW}px`;
+          track.appendChild(gl);
+        }
+        const todayOff = dayDiff(min, todayStr());
+        if (todayOff >= 0 && todayOff < days) {
+          const td = document.createElement("div");
+          td.className = "tl-today";
+          td.style.left = `${todayOff * dayW + dayW / 2}px`;
+          track.appendChild(td);
+        }
+
+        const s = t.start || t.due, e = t.due || t.start;
+        const off = dayDiff(min, s), len = dayDiff(s, e) + 1;
+        const bar = document.createElement("div");
+        bar.className = "tl-bar" + (isDoneStage(t.status) ? " done" : "") + (!isDoneStage(t.status) && t.due && t.due < todayStr() ? " overdue" : "");
+        bar.style.left = `${off * dayW + 2}px`;
+        bar.style.width = `${len * dayW - 4}px`;
+        bar.style.background = stageColor(t.status, t.project_id);
+        bar.textContent = t.title;
+        bar.onclick = () => openTaskModal(t);
+        track.appendChild(bar);
+        row.appendChild(track);
+        tl.appendChild(row);
+      });
+    });
+
+    wrap.appendChild(tl);
+
+    // unscheduled
+    const uw = $("#uns-wrap");
+    uw.innerHTML = "";
+    if (uns.length) {
+      const box = document.createElement("div");
+      box.className = "unscheduled";
+      box.innerHTML = `<h4>Unscheduled</h4>`;
+      uns.forEach((t) => {
+        const el = document.createElement("div");
+        el.className = "uns-item";
+        const p = projOf(t);
+        el.innerHTML = `<span>${esc(t.title)}</span><span class="muted">${p ? esc(p.name) : ""}</span>`;
+        const btn = document.createElement("button");
+        btn.className = "btn-ghost";
+        btn.textContent = "Schedule";
+        btn.onclick = () => openTaskModal(t);
+        el.appendChild(btn);
+        box.appendChild(el);
+      });
+      uw.appendChild(box);
+    }
+  }
+
+  /* ---------- CHARTS ---------- */
+  function renderCharts() {
+    const tasks = filteredTasks();
+    const stages = visibleStages();
+
+    // donut by stage
+    const counts = stages.map((s) => ({
+      name: s.name, color: s.color,
+      n: tasks.filter((t) => String(t.status).toLowerCase() === s.name.toLowerCase()).length,
+    })).filter((x) => x.n > 0);
+    const total = tasks.length;
+    const donutEl = $("#chart-status");
+    if (!total) {
+      donutEl.innerHTML = `<div class="empty-hint">No tasks yet.</div>`;
+    } else {
+      const R = 60, CIRC = 2 * Math.PI * R;
+      let acc = 0;
+      const segs = counts.map((c) => {
+        const frac = c.n / total;
+        const seg = `<circle r="${R}" cx="80" cy="80" fill="none" stroke="${c.color}" stroke-width="26"
+          stroke-dasharray="${frac * CIRC} ${CIRC}" stroke-dashoffset="${-acc * CIRC}" transform="rotate(-90 80 80)"/>`;
+        acc += frac;
+        return seg;
+      }).join("");
+      donutEl.innerHTML = `
+        <div class="donut-wrap">
+          <svg width="160" height="160" viewBox="0 0 160 160">
+            <circle r="${R}" cx="80" cy="80" fill="none" stroke="#e7dfcd" stroke-width="26"/>
+            ${segs}
+            <text x="80" y="76" text-anchor="middle" class="donut-center">${total}</text>
+            <text x="80" y="94" text-anchor="middle" class="donut-center-sub">TASKS</text>
+          </svg>
+          <div class="donut-legend">
+            ${counts.map((c) => `<div class="li"><span class="sw" style="background:${c.color}"></span>${esc(c.name)}<span class="n">${c.n}</span></div>`).join("")}
+          </div>
+        </div>`;
+    }
+
+    // activity (updates) 14 days
+    const act = $("#chart-activity");
+    const daysArr = [];
+    for (let i = 13; i >= 0; i--) daysArr.push(addDays(todayStr(), -i));
+    const countsByDay = daysArr.map((ds) => state.updates.filter((u) => (u.created_at || "").slice(0, 10) === ds).length);
+    const maxA = Math.max(1, ...countsByDay);
+    act.innerHTML = `<div class="bars">` + daysArr.map((ds, i) => `
+      <div class="bar-col">
+        <div class="bar" style="height:${(countsByDay[i] / maxA) * 100}%" title="${countsByDay[i]} updates"></div>
+        <div class="bar-lab">${new Date(ds + "T00:00:00").getDate()}</div>
+      </div>`).join("") + `</div>`;
+
+    // per-project progress
+    const pp = $("#chart-projects");
+    const projs = state.activeProject === "all" ? state.projects : state.projects.filter((p) => p.id === state.activeProject);
+    pp.innerHTML = projs.map((p) => {
+      const ts = state.tasks.filter((t) => t.project_id === p.id);
+      const done = ts.filter((t) => isDoneStage(t.status)).length;
+      const pct = ts.length ? Math.round((done / ts.length) * 100) : 0;
+      return `<div class="proj-row">
+        <div class="pr-head"><span>${esc(p.name)}</span><span class="pct">${done}/${ts.length} · ${pct}%</span></div>
+        <div class="progress"><i style="width:${pct}%;background:${p.color}"></i></div>
+      </div>`;
+    }).join("") || `<div class="empty-hint">No projects yet.</div>`;
+
+    // overdue
+    const ov = $("#chart-overdue");
+    const over = tasks.filter((t) => t.due && t.due < todayStr() && !isDoneStage(t.status))
+      .sort((a, b) => (a.due < b.due ? -1 : 1));
+    ov.innerHTML = over.length ? over.map((t) => {
+      const p = projOf(t);
+      return `<div class="over-item">
+        <span class="sw" style="width:9px;height:9px;border-radius:50%;background:${p ? p.color : "#8a7f6b"}"></span>
+        <span>${esc(t.title)}</span>
+        <span class="over-days">${dayDiff(t.due, todayStr())}d over</span>
+      </div>`;
+    }).join("") : `<div class="empty-hint">Nothing overdue. Jai ho. 🙏</div>`;
+  }
+
+  /* ---------- UPDATES ---------- */
+  function renderUpdates() {
+    const wrap = $("#updates-list");
+    const ups = state.activeProject === "all"
+      ? state.updates
+      : state.updates.filter((u) => u.project_id === state.activeProject);
+    wrap.innerHTML = ups.map((u) => {
+      const p = byId(state.projects, u.project_id);
+      const dt = new Date(u.created_at);
+      const when = dt.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) + " · " +
+        dt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+      return `<div class="upd ${u.author === "fluso" ? "fluso-post" : ""}">
+        <div class="upd-head">
+          <span class="upd-author ${u.author === "fluso" ? "fluso" : ""}">${u.author === "fluso" ? "Fluso" : "Akash"}</span>
+          ${p ? `<span class="upd-proj">${esc(p.name)}</span>` : ""}
+          <span class="upd-time">${when}</span>
+        </div>
+        <div class="upd-text">${esc(u.text)}</div>
+      </div>`;
+    }).join("") || `<div class="empty-hint">No updates yet. Post the first one above.</div>`;
+  }
+
+  /* ---------- MODALS ---------- */
+  let modalEl = null;
+  function closeModal() { if (modalEl) { modalEl.remove(); modalEl = null; state.modalTask = null; } }
+  function modalShell(html) {
+    closeModal();
+    const back = document.createElement("div");
+    back.className = "modal-backdrop";
+    back.innerHTML = `<div class="modal">${html}</div>`;
+    back.addEventListener("click", (e) => { if (e.target === back) closeModal(); });
+    document.body.appendChild(back);
+    modalEl = back;
+    return back;
+  }
+
+  function openTaskModal(task, preset = {}) {
+    const isNew = !task;
+    const t = task || { title: "", project_id: state.activeProject !== "all" ? state.activeProject : (state.projects[0] || {}).id, status: preset.status || "To do", priority: 2, start: "", due: "", notes: "", assignee_id: null };
+    const projCols = colsForProject(t.project_id);
+    const stageOpts = (projCols.length ? projCols : visibleStages())
+      .map((s) => `<option value="${escAttr(s.name)}" ${String(t.status).toLowerCase() === s.name.toLowerCase() ? "selected" : ""}>${esc(s.name)}</option>`).join("");
+    const projOpts = state.projects
+      .map((p) => `<option value="${p.id}" ${t.project_id === p.id ? "selected" : ""}>${esc(p.name)}</option>`).join("");
+    const peopleOpts = `<option value="">Unassigned</option>` + state.people
+      .map((pe) => `<option value="${pe.id}" ${t.assignee_id === pe.id ? "selected" : ""}>${esc(pe.name)}</option>`).join("");
+
+    const back = modalShell(`
+      <h3>${isNew ? "New task" : "Edit task"}</h3>
+      <label>Title<input id="m-title" value="${escAttr(t.title)}" placeholder="What needs doing?"></label>
+      <div class="modal-grid">
+        <label>Project<select id="m-proj">${projOpts}</select></label>
+        <label>Status<select id="m-status">${stageOpts}</select></label>
+      </div>
+      <div class="modal-grid">
+        <label>Start<input id="m-start" type="date" value="${t.start || ""}"></label>
+        <label>Due<input id="m-due" type="date" value="${t.due || ""}"></label>
+      </div>
+      <div class="modal-grid">
+        <label>Priority<select id="m-pri">
+          <option value="1" ${t.priority === 1 ? "selected" : ""}>Low</option>
+          <option value="2" ${t.priority === 2 ? "selected" : ""}>Normal</option>
+          <option value="3" ${t.priority === 3 ? "selected" : ""}>High</option>
+        </select></label>
+        <label>Assigned to<select id="m-assignee">${peopleOpts}</select></label>
+      </div>
+      <label>Notes<textarea id="m-notes" rows="3">${esc(t.notes || "")}</textarea></label>
+      <div class="modal-actions">
+        ${isNew ? "" : `<button class="btn-danger" id="m-del">Delete</button>`}
+        <span class="spacer"></span>
+        <button class="btn-ghost" id="m-cancel">Cancel</button>
+        <button class="btn-accent" id="m-save">${isNew ? "Add task" : "Save"}</button>
+      </div>`);
+
+    // when project changes, reload its stages into the status select (keep choice if it exists there)
+    $("#m-proj", back).addEventListener("change", (e) => {
+      const prev = $("#m-status", back).value;
+      const cols = colsForProject(e.target.value);
+      $("#m-status", back).innerHTML = cols
+        .map((s) => `<option value="${escAttr(s.name)}">${esc(s.name)}</option>`).join("");
+      if (cols.some((s) => s.name === prev)) $("#m-status", back).value = prev;
+    });
+
+    $("#m-cancel", back).onclick = closeModal;
+    if (!isNew) $("#m-del", back).onclick = async () => {
+      if (!confirm(`Delete "${t.title}"?`)) return;
+      await DB.deleteTask(t.id);
+      state.tasks = state.tasks.filter((x) => x.id !== t.id);
+      closeModal(); render();
+    };
+    $("#m-save", back).onclick = async () => {
+      const patch = {
+        title: $("#m-title", back).value.trim(),
+        project_id: $("#m-proj", back).value,
+        status: $("#m-status", back).value,
+        start: $("#m-start", back).value || null,
+        due: $("#m-due", back).value || null,
+        priority: parseInt($("#m-pri", back).value, 10),
+        assignee_id: $("#m-assignee", back).value || null,
+        notes: $("#m-notes", back).value.trim(),
+      };
+      if (!patch.title) { $("#m-title", back).focus(); return; }
+      if (isNew) {
+        const created = await DB.addTask(patch);
+        state.tasks.push(created);
+      } else {
+        Object.assign(t, patch);
+        await DB.updateTask(t.id, patch);
+      }
+      closeModal(); render();
+    };
+    setTimeout(() => $("#m-title", back).focus(), 50);
+  }
+
+  function openColumnModal(col) {
+    const isNew = !col;
+    const c = col || { name: "", color: COL_COLORS[colsForProject(state.activeProject).length % COL_COLORS.length] };
+    const swatches = COL_COLORS.map((hex) =>
+      `<button type="button" class="swatch ${c.color === hex ? "sel" : ""}" data-color="${hex}" style="background:${hex}"></button>`).join("");
+    const back = modalShell(`
+      <h3>${isNew ? "New column" : "Edit column"}</h3>
+      <label>Name<input id="c-name" value="${escAttr(c.name)}" placeholder="e.g. Review"></label>
+      <label>Color<div class="swatches">${swatches}</div></label>
+      <div class="modal-actions">
+        ${isNew ? "" : `<button class="btn-danger" id="c-del">Delete</button>`}
+        <span class="spacer"></span>
+        <button class="btn-ghost" id="c-cancel">Cancel</button>
+        <button class="btn-accent" id="c-save">${isNew ? "Add column" : "Save"}</button>
+      </div>`);
+
+    let picked = c.color;
+    $$(".swatch", back).forEach((b) => b.onclick = () => {
+      picked = b.dataset.color;
+      $$(".swatch", back).forEach((x) => x.classList.toggle("sel", x === b));
+    });
+    $("#c-cancel", back).onclick = closeModal;
+    if (!isNew) $("#c-del", back).onclick = async () => {
+      const inUse = state.tasks.filter((t) => t.project_id === state.activeProject &&
+        String(t.status).toLowerCase() === c.name.toLowerCase()).length;
+      if (inUse) { alert(`"${c.name}" still has ${inUse} task${inUse > 1 ? "s" : ""}. Move them first.`); return; }
+      const remaining = colsForProject(state.activeProject).filter((x) => x.id !== c.id);
+      if (!remaining.length) { alert("A project needs at least one column."); return; }
+      await DB.deleteColumn(c.id);
+      state.columns = state.columns.filter((x) => x.id !== c.id);
+      closeModal(); render();
+    };
+    $("#c-save", back).onclick = async () => {
+      const name = $("#c-name", back).value.trim();
+      if (!name) { $("#c-name", back).focus(); return; }
+      if (isNew) {
+        const pos = Math.max(0, ...colsForProject(state.activeProject).map((x) => x.position)) + 1;
+        const created = await DB.addColumn(state.activeProject, name, picked, pos);
+        state.columns.push(created);
+      } else {
+        const oldName = c.name;
+        Object.assign(c, { name, color: picked });
+        await DB.updateColumn(c.id, { name, color: picked });
+        // keep tasks pointing at renamed stage
+        if (oldName.toLowerCase() !== name.toLowerCase()) {
+          const affected = state.tasks.filter((t) => t.project_id === c.project_id &&
+            String(t.status).toLowerCase() === oldName.toLowerCase());
+          for (const t of affected) { t.status = name; await DB.updateTask(t.id, { status: name }); }
+        }
+      }
+      closeModal(); render();
+    };
+    setTimeout(() => $("#c-name", back).focus(), 50);
+  }
+
+  function openPersonModal() {
+    const list = state.people.map((p) => {
+      const n = state.tasks.filter((t) => t.assignee_id === p.id && !isDoneStage(t.status)).length;
+      return `<div class="person-row" data-id="${p.id}">
+        <span class="avatar" style="background:${p.color}">${initials(p.name)}</span>
+        <span class="person-name">${esc(p.name)}</span>
+        <span class="muted">${n} active</span>
+        <button class="btn-danger person-del" data-id="${p.id}">Remove</button>
+      </div>`;
+    }).join("") || `<div class="empty-hint">No people yet.</div>`;
+    const back = modalShell(`
+      <h3>People</h3>
+      <div class="people-list">${list}</div>
+      <label style="margin-top:16px">Add person<input id="p-name" placeholder="Name"></label>
+      <div class="modal-actions">
+        <span class="spacer"></span>
+        <button class="btn-ghost" id="p-close">Close</button>
+        <button class="btn-accent" id="p-add">Add</button>
+      </div>`);
+    $("#p-close", back).onclick = closeModal;
+    $("#p-add", back).onclick = async () => {
+      const name = $("#p-name", back).value.trim();
+      if (!name) return;
+      if (state.people.some((p) => p.name.toLowerCase() === name.toLowerCase())) { alert("Already in the list."); return; }
+      const color = PERSON_COLORS[state.people.length % PERSON_COLORS.length];
+      const created = await DB.addPerson(name, color);
+      state.people.push(created);
+      closeModal(); openPersonModal(); render();
+    };
+    $$(".person-del", back).forEach((b) => b.onclick = async () => {
+      const p = byId(state.people, b.dataset.id);
+      if (!confirm(`Remove ${p.name}? Their tasks become unassigned.`)) return;
+      await DB.deletePerson(p.id);
+      state.people = state.people.filter((x) => x.id !== p.id);
+      state.tasks.forEach((t) => { if (t.assignee_id === p.id) t.assignee_id = null; });
+      closeModal(); openPersonModal(); render();
+    });
+    setTimeout(() => $("#p-name", back).focus(), 50);
+  }
+
+  function openProjectModal() {
+    const back = modalShell(`
+      <h3>New project</h3>
+      <label>Name<input id="np-name" placeholder="Project name"></label>
+      <div class="modal-actions">
+        <span class="spacer"></span>
+        <button class="btn-ghost" id="np-cancel">Cancel</button>
+        <button class="btn-accent" id="np-save">Create</button>
+      </div>`);
+    $("#np-cancel", back).onclick = closeModal;
+    $("#np-save", back).onclick = async () => {
+      const name = $("#np-name", back).value.trim();
+      if (!name) return;
+      const p = await DB.addProject(name);
+      p.color = PROJECT_COLORS[state.projects.length % PROJECT_COLORS.length];
+      state.projects.push(p);
+      if (p._columns) state.columns.push(...p._columns);
+      state.activeProject = p.id;
+      closeModal(); render();
+    };
+    setTimeout(() => $("#np-name", back).focus(), 50);
+  }
+
+  /* ---------- boot ---------- */
+  async function reload() {
+    const data = await DB.loadAll();
+    state.projects = data.projects || [];
+    state.columns = data.columns || [];
+    state.people = data.people || [];
+    state.tasks = data.tasks || [];
+    state.updates = data.updates || [];
+  }
+
+  function bind() {
+    $$(".tab").forEach((t) => t.onclick = () => { state.view = t.dataset.view; render(); });
+    $("#btn-refresh").onclick = async (e) => {
+      e.currentTarget.classList.add("spin");
+      await reload(); render();
+      setTimeout(() => $("#btn-refresh").classList.remove("spin"), 600);
+    };
+    $("#fab").onclick = () => openTaskModal(null);
+    $("#btn-people").onclick = openPersonModal;
+    $("#btn-add-project").onclick = openProjectModal;
+    $("#upd-post").onclick = postUpdate;
+    $("#upd-input").addEventListener("keydown", (e) => { if (e.key === "Enter") postUpdate();
+    });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+  }
+
   async function postUpdate() {
     const inp = $("#upd-input");
     const text = inp.value.trim();
     if (!text) return;
+    const pid = state.activeProject !== "all" ? state.activeProject : null;
+    const u = await DB.addUpdate(pid, text, "akash");
+    state.updates.unshift(u);
     inp.value = "";
-    const pid = state.activeProject === "all" ? null : state.activeProject;
-    try {
-      const u = await DB.addUpdate(pid, text, "akash");
-      state.updates.unshift(u);
-      renderUpdates();
-    } catch (e) { toast("Post failed"); }
+    renderUpdates();
   }
 
-  /* ---------- boot ---------- */
+  function subscribe() {
+    if (DB.demo) return;
+    try {
+      const cfg = window.APP_CONFIG;
+      const client = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+      const reloadDeb = () => { clearTimeout(state._rt); state._rt = setTimeout(async () => { await reload(); render(); }, 300); };
+      client.channel("board-changes")
+        .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, reloadDeb)
+        .on("postgres_changes", { event: "*", schema: "public", table: "updates" }, reloadDeb)
+        .on("postgres_changes", { event: "*", schema: "public", table: "projects" }, reloadDeb)
+        .on("postgres_changes", { event: "*", schema: "public", table: "columns" }, reloadDeb)
+        .on("postgres_changes", { event: "*", schema: "public", table: "people" }, reloadDeb)
+        .subscribe();
+    } catch (e) { /* realtime optional */ }
+  }
+
   async function boot() {
-    wire();
-    if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
-      navigator.serviceWorker.register("sw.js").catch(() => {});
-    }
-    if (DB.demo) {
-      await reload();
-      switchView("board");
-      return;
-    }
-    const sess = await DB.session();
-    if (!sess) {
+    bind();
+    const session = await DB.session();
+    if (!session && !DB.demo) {
       $("#login").classList.remove("hidden");
       $("#login-btn").onclick = async () => {
         $("#login-err").textContent = "";
@@ -489,7 +851,14 @@
           await DB.signIn($("#login-email").value.trim(), $("#login-pass").value);
           $("#login").classList.add("hidden");
           await reload(); switchView("board"); subscribe();
-        } catch (e) { $("#login-err").textContent = "Sign in failed. Check email and password."; }
+        } catch (e) {
+          $("#login-err").textContent = "Login failed — continuing in demo mode.";
+          setTimeout(async () => {
+            $("#login").classList.add("hidden");
+            window.DB.demo = true;
+            await reload(); switchView("board");
+          }, 900);
+        }
       };
       return;
     }
@@ -497,18 +866,8 @@
     switchView("board");
     subscribe();
   }
-  function subscribe() {
-    // live refresh when Fluso (or another device) writes to the DB
-    try {
-      const cfg = window.APP_CONFIG;
-      const client = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
-      client.channel("board-changes")
-        .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => reload())
-        .on("postgres_changes", { event: "*", schema: "public", table: "updates" }, () => reload())
-        .on("postgres_changes", { event: "*", schema: "public", table: "projects" }, () => reload())
-        .subscribe();
-    } catch (e) { /* realtime optional */ }
-  }
 
-  document.addEventListener("DOMContentLoaded", boot);
+  function switchView(v) { state.view = v; render(); }
+
+  window.addEventListener("DOMContentLoaded", boot);
 })();
