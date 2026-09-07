@@ -39,6 +39,11 @@
   </section>
 
   <!-- LIST (Registry) -->
+  <section id="view-today" class="view">
+    <h2 class="view-title">The <em>day</em></h2>
+    <div id="today-wrap"></div>
+  </section>
+
   <section id="view-list" class="view">
     <h2 class="view-title">The <em>registry</em></h2>
     <div id="list-wrap"></div>
@@ -76,6 +81,7 @@
 </main>
 
 <nav id="tabbar" aria-label="Main views">
+  <button class="tab" data-view="today" title="Today — overdue and due now, your daily driver"><span class="tab-ico">☀</span><span>Today</span></button>
   <button class="tab active" data-view="board" title="Board — kanban of all tasks"><span class="tab-ico">▦</span><span>Board</span></button>
   <button class="tab" data-view="list" title="Registry — list of every task, quick edit"><span class="tab-ico">☰</span><span>Registry</span></button>
   <button class="tab" data-view="timeline" title="Voyage — timeline of scheduled tasks"><span class="tab-ico">⏱</span><span>Voyage</span></button>
