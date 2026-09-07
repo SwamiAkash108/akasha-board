@@ -140,7 +140,7 @@
           <span class="col-dot" style="background:${stage.color}"></span>
           <span class="col-name">${esc(stage.name)}</span>
           <span class="col-count">${colTasks.length}</span>
-          ${state.activeProject !== "all" ? `<button class="col-edit" title="Edit column">✎</button><button class="col-move" title="Drag to reorder">⋮⋮</button>` : ""}
+          ${state.activeProject !== "all" ? `<button class="col-arrow" data-dir="left" title="Move left">←</button><button class="col-arrow" data-dir="right" title="Move right">→</button><button class="col-edit" title="Edit column">✎</button>` : ""}
         </div>
         <div class="col-body"></div>
         <button class="add-task">+ Add task</button>`;
@@ -158,26 +158,16 @@
       col.addEventListener("dragleave", () => col.classList.remove("drag-over"));
       col.addEventListener("drop", (e) => {
         e.preventDefault(); col.classList.remove("drag-over");
-        const colId = e.dataTransfer.getData("application/x-col-id");
-        if (colId) { reorderColumn(colId, stage.id); return; } // column reorder
         const id = e.dataTransfer.getData("text/plain");
         const t = byId(state.tasks, id);
         if (!t) return;
         moveTaskToStage(t, stage.name, body);
       });
 
-      // column dnd: drag the ⋮⋮ handle
-      const moveBtn = $(".col-move", col);
-      if (moveBtn) {
-        moveBtn.draggable = true;
-        moveBtn.addEventListener("dragstart", (e) => {
-          e.stopPropagation();
-          e.dataTransfer.setData("application/x-col-id", stage.id);
-          e.dataTransfer.effectAllowed = "move";
-          col.classList.add("col-dragging");
-        });
-        moveBtn.addEventListener("dragend", () => col.classList.remove("col-dragging"));
-      }
+      // column arrows: move left/right
+      $$(".col-arrow", col).forEach((btn) => btn.addEventListener("click", () => {
+        moveColumn(stage.id, btn.dataset.dir);
+      }));
 
       // touch dnd (pointer events)
       enableTouchDnD(col, body, stage.name);
@@ -241,22 +231,17 @@
     };
   }
 
-  async function reorderColumn(draggedId, targetId) {
-    if (draggedId === targetId) return;
+  async function moveColumn(colId, dir) {
     const cols = colsForProject(state.activeProject).sort((a, b) => a.position - b.position);
-    const dragged = byId(cols, draggedId);
-    if (!dragged || !cols.find((c) => c.id === targetId)) return;
-    // remove dragged, insert before target
-    const rest = cols.filter((c) => c.id !== draggedId);
-    const idx = rest.findIndex((c) => c.id === targetId);
-    rest.splice(idx, 0, dragged);
-    // renumber positions
-    rest.forEach((c, i) => { c.position = i + 1; });
-    state.columns = state.columns.map((c) => rest.find((x) => x.id === c.id) || c);
-    await DB.updateColumn(draggedId, { position: dragged.position });
-    for (const c of rest) {
-      if (c.id !== draggedId) await DB.updateColumn(c.id, { position: c.position });
-    }
+    const i = cols.findIndex((c) => c.id === colId);
+    if (i < 0) return;
+    const j = dir === "left" ? i - 1 : i + 1;
+    if (j < 0 || j >= cols.length) return;
+    [cols[i], cols[j]] = [cols[j], cols[i]];
+    cols.forEach((c, k) => { c.position = k + 1; });
+    state.columns = state.columns.map((c) => cols.find((x) => x.id === c.id) || c);
+    await DB.updateColumn(cols[i].id, { position: cols[i].position });
+    await DB.updateColumn(cols[j].id, { position: cols[j].position });
     renderBoard();
   }
 
