@@ -47,6 +47,7 @@
   <!-- TIMELINE -->
   <section id="view-timeline" class="view">
     <h2 class="view-title">The <em>voyage</em></h2>
+    <label class="hide-done tl-hidetoggle"><input type="checkbox" id="tl-hide-uns"> hide unscheduled tasks</label>
     <div class="tl-wrap" id="timeline-wrap"></div>
     <div id="uns-wrap"></div>
   </section>
@@ -64,14 +65,12 @@
 
   <!-- UPDATES -->
   <section id="view-updates" class="view">
-    <h2 class="view-title">The <em>logbook</em></h2>
-    <div class="updates-head">
-      <div class="upd-input-row">
-        <input id="upd-input" type="text" placeholder="Post an update…" autocomplete="off">
-        <button id="upd-post" class="btn-accent">Post</button>
-      </div>
+    <h2 class="view-title">The <em>chat</em></h2>
+    <div class="chat-wrap" id="chat-wrap"></div>
+    <div class="chat-input-row">
+      <input id="chat-input" type="text" placeholder="Message Fluso… (same thread as Telegram)" autocomplete="off">
+      <button id="chat-send" class="btn-accent">Send</button>
     </div>
-    <div id="updates-list" class="updates"></div>
   </section>
 
 </main>
@@ -81,7 +80,7 @@
   <button class="tab" data-view="list" title="Registry — list of every task, quick edit"><span class="tab-ico">☰</span><span>Registry</span></button>
   <button class="tab" data-view="timeline" title="Voyage — timeline of scheduled tasks"><span class="tab-ico">⏱</span><span>Voyage</span></button>
   <button class="tab" data-view="charts" title="Ledger — charts and progress"><span class="tab-ico">◔</span><span>Ledger</span></button>
-  <button class="tab" data-view="updates" title="Logbook — updates feed"><span class="tab-ico">✎</span><span>Logbook</span></button>
+  <button class="tab" data-view="updates" title="Chat — talk to Fluso, same thread as Telegram"><span class="tab-ico">✎</span><span>Chat</span></button>
 </nav>
 
 <button id="fab" title="New task">+</button>
