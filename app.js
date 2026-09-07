@@ -12,7 +12,7 @@
   const state = {
     projects: [], columns: [], people: [], tasks: [], updates: [], chat: [],
     activeProject: "all", view: "board", modalTask: null,
-    search: "", hideDone: false, hideUnscheduled: false, todayWho: "all",
+    search: "", hideDone: false, hideUnscheduled: false, todayWho: "all", todayScope: "due",
   };
 
   /* ---------- helpers ---------- */
@@ -650,13 +650,17 @@
       state.people.map((p) => chip(p.id, p.name, p.color)).join("") +
       chip("none", "Unassigned");
 
-    let tasks = filteredTasks().filter((t) => t.due && !isDoneStage(t.status));
+    let tasks = filteredTasks().filter((t) => !isDoneStage(t.status));
     if (state.todayWho === "none") tasks = tasks.filter((t) => !peopleOf(t).length);
     else if (state.todayWho !== "all") tasks = tasks.filter((t) => peopleOf(t).some((p) => p.id === state.todayWho));
-    const overdue = tasks.filter((t) => t.due < today).sort((a, b) => a.due < b.due ? -1 : 1);
-    const dueToday = tasks.filter((t) => t.due === today);
     const week = addDays(today, 7);
-    const upcoming = tasks.filter((t) => t.due > today && t.due <= week).sort((a, b) => a.due < b.due ? -1 : 1);
+    const dated = tasks.filter((t) => t.due);
+    const overdue = dated.filter((t) => t.due < today).sort((a, b) => a.due < b.due ? -1 : 1);
+    const dueToday = dated.filter((t) => t.due === today);
+    const upcoming = dated.filter((t) => t.due > today && t.due <= week).sort((a, b) => a.due < b.due ? -1 : 1);
+    // "All" scope also shows everything else
+    const later = dated.filter((t) => t.due > week).sort((a, b) => a.due < b.due ? -1 : 1);
+    const noDate = tasks.filter((t) => !t.due).sort((a, b) => (b.priority - a.priority) || (a.position - b.position));
 
     const section = (title, cls, items, empty) => `
       <div class="today-sec">
@@ -666,7 +670,7 @@
           const people = peopleOf(t);
           const avatars = people.map((pe) => `<span class="avatar" style="background:${pe.color}" title="${escAttr(pe.name)}">${initials(pe.name)}</span>`).join("");
           return `<div class="today-row" data-id="${t.id}">
-            <span class="today-due ${cls}">${t.due === today ? "today" : fmtDate(t.due)}</span>
+            <span class="today-due ${cls}">${t.due ? (t.due === today ? "today" : fmtDate(t.due)) : "—"}</span>
             <span class="today-title">${esc(t.title)}${t.recur ? ` <span class="badge badge-recur">↻</span>` : ""}</span>
             <span class="today-proj">${p ? `<i style="background:${p.color}"></i>${esc(p.name)}` : ""}</span>
             <span class="today-stage" style="border-color:${stageColor(t.status, t.project_id)}">${esc(t.status)}</span>
@@ -675,14 +679,23 @@
         }).join("") : `<div class="empty-hint">${empty}</div>`}
       </div>`;
 
+    const scopeBtn = (id, label) => `<button class="who-chip scope-chip ${state.todayScope === id ? "active" : ""}" data-scope="${id}">${label}</button>`;
     wrap.innerHTML =
-      `<div class="who-bar">${chips}</div>` +
+      `<div class="who-bar">${chips}<span class="who-sep"></span>${scopeBtn("due", "Scheduled")}${scopeBtn("all", "All")}</div>` +
       section("Overdue", "over", overdue, "Nothing overdue. Steady.") +
       section("Due today", "soon", dueToday, "Nothing due today.") +
-      section("Next 7 days", "", upcoming, "Clear week ahead.");
+      section("Next 7 days", "", upcoming, "Clear week ahead.") +
+      (state.todayScope === "all"
+        ? section("Later", "", later, "Nothing further out.") +
+          section("No date", "", noDate, "Everything has a date.")
+        : "");
 
-    $$(".who-chip", wrap).forEach((b) => b.addEventListener("click", () => {
+    $$(".who-chip[data-who]", wrap).forEach((b) => b.addEventListener("click", () => {
       state.todayWho = b.dataset.who;
+      renderToday();
+    }));
+    $$(".scope-chip", wrap).forEach((b) => b.addEventListener("click", () => {
+      state.todayScope = b.dataset.scope;
       renderToday();
     }));
 
