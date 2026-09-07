@@ -135,13 +135,12 @@
       col.className = "col";
       col.dataset.stage = stage.name;
       col.style.borderTopColor = stage.color;
-      col.draggable = state.activeProject !== "all"; // columns reorderable per project
       col.innerHTML = `
         <div class="col-head">
           <span class="col-dot" style="background:${stage.color}"></span>
           <span class="col-name">${esc(stage.name)}</span>
           <span class="col-count">${colTasks.length}</span>
-          ${state.activeProject !== "all" ? `<button class="col-edit" title="Edit column">✎</button>` : ""}
+          ${state.activeProject !== "all" ? `<button class="col-edit" title="Edit column">✎</button><button class="col-move" title="Drag to reorder">⋮⋮</button>` : ""}
         </div>
         <div class="col-body"></div>
         <button class="add-task">+ Add task</button>`;
@@ -167,14 +166,18 @@
         moveTaskToStage(t, stage.name, body);
       });
 
-      // column dnd: drag header to reorder
-      const head = $(".col-head", col);
-      head.draggable = state.activeProject !== "all";
-      head.addEventListener("dragstart", (e) => {
-        e.dataTransfer.setData("application/x-col-id", stage.id);
-        e.dataTransfer.effectAllowed = "move";
-      });
-      head.addEventListener("dragend", () => {});
+      // column dnd: drag the ⋮⋮ handle
+      const moveBtn = $(".col-move", col);
+      if (moveBtn) {
+        moveBtn.draggable = true;
+        moveBtn.addEventListener("dragstart", (e) => {
+          e.stopPropagation();
+          e.dataTransfer.setData("application/x-col-id", stage.id);
+          e.dataTransfer.effectAllowed = "move";
+          col.classList.add("col-dragging");
+        });
+        moveBtn.addEventListener("dragend", () => col.classList.remove("col-dragging"));
+      }
 
       // touch dnd (pointer events)
       enableTouchDnD(col, body, stage.name);
