@@ -462,3 +462,31 @@ body::after{
 
 /* v6: busy state for guarded async buttons */
 .btn-accent:disabled,.btn-ghost:disabled{opacity:.55;pointer-events:none}
+
+/* ---------- chat ---------- */
+.chat-wrap{
+  max-width:680px; margin:0 auto; display:flex; flex-direction:column; gap:13px;
+  padding-bottom:10px; max-height:60vh; overflow-y:auto;
+}
+.chat-msg{display:flex; flex-direction:column; max-width:78%}
+.chat-msg.fluso{align-self:flex-start}
+.chat-msg.akash{align-self:flex-end}
+.chat-bubble{
+  padding:13px 16px; border-radius:5px; font-family:var(--font-head); font-size:15.5px; line-height:1.5;
+  border:2.5px solid var(--ink); box-shadow:var(--shadow-sm); white-space:pre-wrap; word-break:break-word;
+}
+.chat-msg.fluso .chat-bubble{background:var(--ink); color:var(--cream); border-left:8px solid var(--red)}
+.chat-msg.akash .chat-bubble{background:var(--cream); color:var(--ink)}
+.chat-meta{font-family:var(--font-type); font-size:11px; color:var(--faint); margin-top:5px}
+.chat-msg.akash .chat-meta{text-align:right}
+.chat-input-row{max-width:680px; margin:18px auto 0; display:flex; gap:10px}
+#chat-input{
+  flex:1; background:var(--cream); border:3px solid var(--ink); border-radius:5px;
+  padding:14px 17px; color:var(--ink); font-size:15px; font-family:var(--font-head); outline:none;
+  min-height:48px; box-shadow:var(--shadow-sm);
+}
+#chat-input::placeholder{font-family:var(--font-ui); color:var(--faint); font-size:14px}
+.tl-hidetoggle{display:inline-flex; margin-bottom:14px; color:var(--cream)}
+/* multi-select in modal + registry */
+#m-assignee[multiple]{min-height:96px}
+.assignee-select[multiple]{min-height:38px}
