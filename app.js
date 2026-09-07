@@ -87,6 +87,7 @@
     $("#view-timeline").classList.toggle("active", state.view === "timeline");
     $("#view-charts").classList.toggle("active", state.view === "charts");
     $("#view-updates").classList.toggle("active", state.view === "updates");
+    $("#view-today").classList.toggle("active", state.view === "today");
     $("#view-list").classList.toggle("active", state.view === "list");
     $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === state.view));
     if (state.view === "board") renderBoard();
@@ -94,6 +95,7 @@
     else if (state.view === "charts") renderCharts();
     else if (state.view === "updates") renderChat();
     else if (state.view === "list") renderList();
+    else if (state.view === "today") renderToday();
   }
 
   function renderChips() {
@@ -203,6 +205,7 @@
     }
     if (t.priority === 3) badges += `<span class="badge badge-pri3">!!!</span>`;
     else if (t.priority === 1) badges += `<span class="badge badge-pri1">low</span>`;
+    if (t.recur) badges += `<span class="badge badge-recur" title="Repeats ${t.recur}">↻</span>`;
     const avatars = people.map((pe) => `<span class="avatar" style="background:${pe.color}" title="${escAttr(pe.name)}">${initials(pe.name)}</span>`).join("");
     card.innerHTML = `
       <div class="card-title">${esc(t.title)}</div>
@@ -231,6 +234,43 @@
     };
   }
 
+  const RECUR_DAYS = { daily: 1, weekly: 7, biweekly: 14, monthly: 30, yearly: 365 };
+
+  /* Central status change: handles recurrence spawn when a recurring task enters a done column. */
+  async function setTaskStatus(task, stageName, bodyEl) {
+    const siblings = state.tasks
+      .filter((x) => String(x.status).toLowerCase() === stageName.toLowerCase() && x.id !== task.id)
+      .sort((a, b) => a.position - b.position);
+    const pos = siblings.length ? siblings[siblings.length - 1].position + 1 : Date.now();
+    const wasDone = isDoneStage(task.status);
+    task.status = stageName; task.position = pos;
+    await DB.updateTask(task.id, { status: stageName, position: pos });
+    // recurrence: entering a done stage spawns the next occurrence
+    if (!wasDone && isDoneStage(stageName) && task.recur && RECUR_DAYS[task.recur]) {
+      const step = RECUR_DAYS[task.recur];
+      const base = task.due || todayStr();
+      let next = addDays(base, step);
+      // never schedule in the past — roll forward until future
+      while (next <= todayStr()) next = addDays(next, step);
+      const firstCol = colsForProject(task.project_id).sort((a, b) => a.position - b.position)[0];
+      const clone = {
+        project_id: task.project_id,
+        title: task.title,
+        status: firstCol ? firstCol.name : task.status,
+        priority: task.priority,
+        start: null,
+        due: next,
+        position: Date.now(),
+        assignees: task.assignees || [],
+        assignee_id: (task.assignees || [])[0] || null,
+        recur: task.recur,
+        notes: task.notes || null,
+      };
+      const created = await DB.addTask(clone);
+      if (created && !state.tasks.some((x) => x.id === created.id)) state.tasks.push(created);
+    }
+  }
+
   async function moveColumn(colId, dir) {
     const cols = colsForProject(state.activeProject).sort((a, b) => a.position - b.position);
     const i = cols.findIndex((c) => c.id === colId);
@@ -246,14 +286,8 @@
   }
 
   async function moveTaskToStage(task, stageName, bodyEl) {
-    // compute position: append at end of target column
-    const siblings = state.tasks
-      .filter((x) => String(x.status).toLowerCase() === stageName.toLowerCase() && x.id !== task.id)
-      .sort((a, b) => a.position - b.position);
-    const pos = siblings.length ? siblings[siblings.length - 1].position + 1 : Date.now();
-    task.status = stageName; task.position = pos;
+    await setTaskStatus(task, stageName, bodyEl);
     render();
-    await DB.updateTask(task.id, { status: stageName, position: pos });
   }
 
   /* touch drag: long-press then move */
@@ -386,8 +420,7 @@
     $$(".status-select", wrap).forEach((sel) => sel.addEventListener("change", async (e) => {
       const t = byId(state.tasks, sel.dataset.id);
       if (!t) return;
-      t.status = sel.value;
-      await DB.updateTask(t.id, { status: sel.value });
+      await setTaskStatus(t, sel.value);
       renderList();
     }));
     $$(".assignee-select", wrap).forEach((sel) => sel.addEventListener("change", async (e) => {
@@ -608,6 +641,43 @@
   }
 
   /* ---------- UPDATES ---------- */
+  function renderToday() {
+    const wrap = $("#today-wrap");
+    const today = todayStr();
+    const tasks = filteredTasks().filter((t) => t.due && !isDoneStage(t.status));
+    const overdue = tasks.filter((t) => t.due < today).sort((a, b) => a.due < b.due ? -1 : 1);
+    const dueToday = tasks.filter((t) => t.due === today);
+    const week = addDays(today, 7);
+    const upcoming = tasks.filter((t) => t.due > today && t.due <= week).sort((a, b) => a.due < b.due ? -1 : 1);
+
+    const section = (title, cls, items, empty) => `
+      <div class="today-sec">
+        <h3 class="today-sec-title ${cls}">${title} <span class="col-count">${items.length}</span></h3>
+        ${items.length ? items.map((t) => {
+          const p = projOf(t);
+          const people = peopleOf(t);
+          const avatars = people.map((pe) => `<span class="avatar" style="background:${pe.color}" title="${escAttr(pe.name)}">${initials(pe.name)}</span>`).join("");
+          return `<div class="today-row" data-id="${t.id}">
+            <span class="today-due ${cls}">${t.due === today ? "today" : fmtDate(t.due)}</span>
+            <span class="today-title">${esc(t.title)}${t.recur ? ` <span class="badge badge-recur">↻</span>` : ""}</span>
+            <span class="today-proj">${p ? `<i style="background:${p.color}"></i>${esc(p.name)}` : ""}</span>
+            <span class="today-stage" style="border-color:${stageColor(t.status, t.project_id)}">${esc(t.status)}</span>
+            <span class="today-who">${avatars}</span>
+          </div>`;
+        }).join("") : `<div class="empty-hint">${empty}</div>`}
+      </div>`;
+
+    wrap.innerHTML =
+      section("Overdue", "over", overdue, "Nothing overdue. Steady.") +
+      section("Due today", "soon", dueToday, "Nothing due today.") +
+      section("Next 7 days", "", upcoming, "Clear week ahead.");
+
+    $$(".today-row", wrap).forEach((row) => row.addEventListener("click", () => {
+      const t = byId(state.tasks, row.dataset.id);
+      if (t) openTaskModal(t);
+    }));
+  }
+
   function renderChat() {
     const wrap = $("#chat-wrap");
     if (!wrap) return;
@@ -700,6 +770,13 @@
           <option value="3" ${t.priority === 3 ? "selected" : ""}>High</option>
         </select></label>
         <label>Assigned to<select id="m-assignee" multiple size="3">${peopleOpts}</select><span class="muted" style="font-size:11px">hold Ctrl/Cmd for several</span></label>
+        <label>Repeats<select id="m-recur">
+          <option value="" ${!t.recur ? "selected" : ""}>Never</option>
+          <option value="daily" ${t.recur === "daily" ? "selected" : ""}>Daily</option>
+          <option value="weekly" ${t.recur === "weekly" ? "selected" : ""}>Weekly</option>
+          <option value="biweekly" ${t.recur === "biweekly" ? "selected" : ""}>Every 2 weeks</option>
+          <option value="monthly" ${t.recur === "monthly" ? "selected" : ""}>Monthly</option>
+        </select></label>
       </div>
       <label>Notes<textarea id="m-notes" rows="3">${esc(t.notes || "")}</textarea></label>
       <div class="modal-actions">
@@ -734,6 +811,7 @@
         due: $("#m-due", back).value || null,
         priority: parseInt($("#m-pri", back).value, 10),
         assignees: [...$("#m-assignee", back).selectedOptions].map((o) => o.value),
+        recur: $("#m-recur", back).value || null,
         notes: $("#m-notes", back).value.trim(),
       };
       patch.assignee_id = patch.assignees[0] || null; // keep legacy col in sync
