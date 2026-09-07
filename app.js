@@ -12,7 +12,7 @@
   const state = {
     projects: [], columns: [], people: [], tasks: [], updates: [], chat: [],
     activeProject: "all", view: "board", modalTask: null,
-    search: "", hideDone: false, hideUnscheduled: false,
+    search: "", hideDone: false, hideUnscheduled: false, todayWho: "all",
   };
 
   /* ---------- helpers ---------- */
@@ -644,7 +644,15 @@
   function renderToday() {
     const wrap = $("#today-wrap");
     const today = todayStr();
-    const tasks = filteredTasks().filter((t) => t.due && !isDoneStage(t.status));
+    // assignee filter chips: Everyone + each person + Unassigned
+    const chip = (id, label, color) => `<button class="who-chip ${state.todayWho === id ? "active" : ""}" data-who="${id}">${color ? `<span class="avatar" style="background:${color}">${initials(label)}</span>` : ""}${esc(label)}</button>`;
+    const chips = chip("all", "Everyone") +
+      state.people.map((p) => chip(p.id, p.name, p.color)).join("") +
+      chip("none", "Unassigned");
+
+    let tasks = filteredTasks().filter((t) => t.due && !isDoneStage(t.status));
+    if (state.todayWho === "none") tasks = tasks.filter((t) => !peopleOf(t).length);
+    else if (state.todayWho !== "all") tasks = tasks.filter((t) => peopleOf(t).some((p) => p.id === state.todayWho));
     const overdue = tasks.filter((t) => t.due < today).sort((a, b) => a.due < b.due ? -1 : 1);
     const dueToday = tasks.filter((t) => t.due === today);
     const week = addDays(today, 7);
@@ -668,9 +676,15 @@
       </div>`;
 
     wrap.innerHTML =
+      `<div class="who-bar">${chips}</div>` +
       section("Overdue", "over", overdue, "Nothing overdue. Steady.") +
       section("Due today", "soon", dueToday, "Nothing due today.") +
       section("Next 7 days", "", upcoming, "Clear week ahead.");
+
+    $$(".who-chip", wrap).forEach((b) => b.addEventListener("click", () => {
+      state.todayWho = b.dataset.who;
+      renderToday();
+    }));
 
     $$(".today-row", wrap).forEach((row) => row.addEventListener("click", () => {
       const t = byId(state.tasks, row.dataset.id);
