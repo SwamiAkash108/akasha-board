@@ -105,6 +105,11 @@
       data._columns = await seedColumns(data.id);
       return data;
     },
+    async updateProject(id, patch) {
+      if (DEMO) { const p = demo.projects.find((x) => x.id === id); if (p) Object.assign(p, patch); return; }
+      const { error } = await sb.from("projects").update(patch).eq("id", id);
+      if (error) throw error;
+    },
 
     /* ----- columns ----- */
     async addColumn(project_id, name, color = "#8a7f6b", position = Date.now()) {
