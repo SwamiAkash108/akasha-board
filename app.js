@@ -505,7 +505,7 @@
       donutEl.innerHTML = `
         <div class="donut-wrap">
           <svg width="160" height="160" viewBox="0 0 160 160">
-            <circle r="${R}" cx="80" cy="80" fill="none" stroke="#e7dfcd" stroke-width="26"/>
+            <circle r="${R}" cx="80" cy="80" fill="none" stroke="#efe9d6" stroke-width="26"/>
             ${segs}
             <text x="80" y="76" text-anchor="middle" class="donut-center">${total}</text>
             <text x="80" y="94" text-anchor="middle" class="donut-center-sub">TASKS</text>
