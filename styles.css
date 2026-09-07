@@ -527,3 +527,17 @@ body::after{
 .today-who{display:flex; gap:3px}
 .badge-recur{background:var(--ink); color:var(--cream)}
 @media (max-width:640px){ .today-stage,.today-proj{display:none} }
+
+/* ---------- today who filter ---------- */
+.who-bar{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:4px}
+.who-chip{
+  display:inline-flex; align-items:center; gap:7px; padding:5px 13px 5px 6px;
+  background:var(--cream); border:2px solid var(--ink); border-radius:99px;
+  font-family:var(--font-head); font-size:13px; color:var(--ink); cursor:pointer;
+  box-shadow:2px 2px 0 var(--ink); transition:transform .08s, background .12s;
+}
+.who-chip .avatar{width:22px; height:22px; font-size:10px}
+.who-chip:first-child{padding-left:13px}
+.who-chip:last-child{padding-left:13px}
+.who-chip:hover{transform:translate(-1px,-1px); box-shadow:3px 3px 0 var(--ink)}
+.who-chip.active{background:var(--ink); color:var(--cream)}
