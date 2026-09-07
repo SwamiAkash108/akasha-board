@@ -109,12 +109,12 @@
       b.onclick = () => { state.activeProject = id; render(); };
       if (id !== "all") {
         let pressTimer = null;
-        const start = () => { pressTimer = setTimeout(() => deleteProject(id, label), 700); };
+        const start = (e) => { const x = e.clientX, y = e.clientY; pressTimer = setTimeout(() => openProjectMenu(id, label, x, y), 700); };
         const cancel = () => clearTimeout(pressTimer);
         b.addEventListener("pointerdown", start);
         b.addEventListener("pointerup", cancel);
         b.addEventListener("pointerleave", cancel);
-        b.addEventListener("contextmenu", (e) => { e.preventDefault(); deleteProject(id, label); });
+        b.addEventListener("contextmenu", (e) => { e.preventDefault(); clearTimeout(pressTimer); openProjectMenu(id, label, e.clientX, e.clientY); });
       }
       wrap.appendChild(b);
     };
@@ -734,6 +734,43 @@
     const c = await DB.addChat("user", text);   // app-side message → chat table
     if (!state.chat.some((x) => x.id === c.id)) state.chat.push(c);
     renderChat();
+  }
+
+  /* ---------- project context menu (right-click / long-press on a chip) ---------- */
+  let projMenuEl = null;
+  function closeProjectMenu() { if (projMenuEl) { projMenuEl.remove(); projMenuEl = null; } }
+  function openProjectMenu(id, label, x, y) {
+    closeProjectMenu();
+    const m = document.createElement("div");
+    m.className = "ctx-menu";
+    m.innerHTML = `
+      <button class="ctx-item" data-act="rename">✎ Rename</button>
+      <button class="ctx-item ctx-danger" data-act="delete">✕ Delete</button>`;
+    document.body.appendChild(m);
+    projMenuEl = m;
+    // keep inside viewport
+    const r = m.getBoundingClientRect();
+    m.style.left = Math.min(x, window.innerWidth - r.width - 8) + "px";
+    m.style.top = Math.min(y, window.innerHeight - r.height - 8) + "px";
+    m.addEventListener("click", async (e) => {
+      const act = e.target.closest(".ctx-item")?.dataset.act;
+      closeProjectMenu();
+      if (act === "rename") renameProject(id, label);
+      else if (act === "delete") deleteProject(id, label);
+    });
+    setTimeout(() => {
+      document.addEventListener("click", closeProjectMenu, { once: true });
+      document.addEventListener("contextmenu", closeProjectMenu, { once: true });
+    }, 0);
+  }
+
+  async function renameProject(id, oldName) {
+    const name = prompt("Rename project:", oldName);
+    if (!name || !name.trim() || name.trim() === oldName) return;
+    const p = byId(state.projects, id);
+    if (p) p.name = name.trim();
+    await DB.updateProject(id, { name: name.trim() });
+    render();
   }
 
   async function deleteProject(id, label) {
