@@ -165,6 +165,8 @@ body::after{
 .add-col:hover{border-color:var(--ink); background:rgba(246,241,226,.25)}
 .add-col-plus{font-size:26px; line-height:1; font-weight:400}
 .empty-hint{font-family:var(--font-head); font-style:italic; color:var(--cream); opacity:.85; padding:20px 6px; font-size:16px}
+/* Today view sections sit directly on the red page bg — use dark ink there */
+#today-wrap .empty-hint{color:var(--ink); opacity:.6}
 
 /* avatars */
 .avatar{
@@ -508,9 +510,8 @@ body::after{
 
 /* ---------- today view ---------- */
 #today-wrap{max-width:760px; margin:0 auto; display:flex; flex-direction:column; gap:26px}
-.today-sec-title{font-family:var(--font-head); font-size:20px; margin:0 0 12px; display:flex; align-items:center; gap:10px}
-.today-sec-title.over{color:#c0392b}
-.today-sec-title.soon{color:var(--gold, #d9a13b)}
+.today-sec-title{font-family:var(--font-head); font-size:20px; margin:0 0 12px; display:flex; align-items:center; gap:10px; color:var(--cream)}
+.today-sec-title .col-count{background:var(--cream); color:var(--ink)}
 .today-row{
   display:flex; align-items:center; gap:12px; padding:12px 16px; margin-bottom:8px;
   background:var(--cream); border:2.5px solid var(--ink); border-radius:5px;
