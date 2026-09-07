@@ -44,3 +44,16 @@ create policy "owner all" on people for all to authenticated using (true) with c
 
 alter publication supabase_realtime add table columns;
 alter publication supabase_realtime add table people;
+
+-- 6. exec_sql helper — lets Fluso run future migrations via the API,
+--    so you never need to open this SQL editor again.
+create or replace function exec_sql(sql text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  execute sql;
+end;
+$$;
