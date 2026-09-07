@@ -34,15 +34,15 @@
     { id: "u2", name: "Fluso", color: "#2b4361", created_at: new Date().toISOString() },
   ];
   const demoTasks = [
-    { id: uid(), project_id: "p1", title: "Collect source material", status: "Done", priority: 2, start: d(-20), due: d(-12), position: 1, assignee_id: "u1" },
-    { id: uid(), project_id: "p1", title: "Structure and outline", status: "Done", priority: 2, start: d(-11), due: d(-6), position: 2, assignee_id: "u1" },
-    { id: uid(), project_id: "p1", title: "First draft", status: "Doing", priority: 3, start: d(-5), due: d(9), position: 1, assignee_id: "u1" },
-    { id: uid(), project_id: "p1", title: "Editing, content and copy", status: "To do", priority: 2, start: d(10), due: d(20), position: 2, assignee_id: null },
-    { id: uid(), project_id: "p1", title: "Sanskrit / IAST check", status: "To do", priority: 2, start: d(21), due: d(25), position: 3, assignee_id: "u2" },
-    { id: uid(), project_id: "p1", title: "Proofreading", status: "To do", priority: 1, start: d(26), due: d(30), position: 4, assignee_id: null },
-    { id: uid(), project_id: "p2", title: "Homepage hero design", status: "Doing", priority: 3, start: d(-3), due: d(4), position: 1, assignee_id: "u1" },
-    { id: uid(), project_id: "p2", title: "Migrate old content", status: "Blocked", priority: 2, start: d(-8), due: d(-1), position: 1, assignee_id: null },
-    { id: uid(), project_id: "p3", title: "Record track 4", status: "To do", priority: 2, start: d(3), due: d(12), position: 1, assignee_id: "u1" },
+    { id: uid(), project_id: "p1", title: "Collect source material", status: "Done", priority: 2, start: d(-20), due: d(-12), position: 1, assignees: ["u1"] },
+    { id: uid(), project_id: "p1", title: "Structure and outline", status: "Done", priority: 2, start: d(-11), due: d(-6), position: 2, assignees: ["u1"] },
+    { id: uid(), project_id: "p1", title: "First draft", status: "Doing", priority: 3, start: d(-5), due: d(9), position: 1, assignees: ["u1"] },
+    { id: uid(), project_id: "p1", title: "Editing, content and copy", status: "To do", priority: 2, start: d(10), due: d(20), position: 2, assignees: [] },
+    { id: uid(), project_id: "p1", title: "Sanskrit / IAST check", status: "To do", priority: 2, start: d(21), due: d(25), position: 3, assignees: ["u2"] },
+    { id: uid(), project_id: "p1", title: "Proofreading", status: "To do", priority: 1, start: d(26), due: d(30), position: 4, assignees: [] },
+    { id: uid(), project_id: "p2", title: "Homepage hero design", status: "Doing", priority: 3, start: d(-3), due: d(4), position: 1, assignees: ["u1"] },
+    { id: uid(), project_id: "p2", title: "Migrate old content", status: "Blocked", priority: 2, start: d(-8), due: d(-1), position: 1, assignees: [] },
+    { id: uid(), project_id: "p3", title: "Record track 4", status: "To do", priority: 2, start: d(3), due: d(12), position: 1, assignees: ["u1"] },
   ].map(t => ({ notes: "", created_at: new Date().toISOString(), updated_at: new Date().toISOString(), ...t }));
   const demoUpdates = [
     { id: uid(), project_id: "p1", author: "fluso", text: "Project created from your voice note via @fluso_pm_bot. 12 publication stages added as tasks.", created_at: new Date(Date.now() - 3600e3).toISOString() },
@@ -134,7 +134,7 @@
     async deletePerson(id) {
       if (DEMO) {
         demo.people = demo.people.filter(p => p.id !== id);
-        demo.tasks.forEach(t => { if (t.assignee_id === id) t.assignee_id = null; });
+        demo.tasks.forEach(t => { t.assignees = (t.assignees || []).filter(x => x !== id); });
         return;
       }
       const { error } = await sb.from("people").delete().eq("id", id);
@@ -160,10 +160,35 @@
       if (error) throw error;
     },
 
+    async deleteProject(id) {
+      if (DEMO) {
+        demo.projects = demo.projects.filter(p => p.id !== id);
+        demo.columns = demo.columns.filter(c => c.project_id !== id);
+        demo.tasks = demo.tasks.filter(t => t.project_id !== id);
+        demo.updates = demo.updates.filter(u => u.project_id !== id);
+        return;
+      }
+      const { error } = await sb.from("projects").delete().eq("id", id);
+      if (error) throw error;
+    },
+
     async addUpdate(project_id, text, author = "akash") {
       const row = { project_id, text, author };
       if (DEMO) { const u = { id: uid(), created_at: new Date().toISOString(), ...row }; demo.updates.unshift(u); return u; }
       const { data, error } = await sb.from("updates").insert(row).select().single();
+      if (error) throw error; return data;
+    },
+    /* ----- chat ----- */
+    async loadChat(limit = 100) {
+      if (DEMO) return demo.chat || [];
+      const { data, error } = await sb.from("chat").select("*").order("created_at", { ascending: true }).limit(limit);
+      if (error) throw error;
+      return data;
+    },
+    async addChat(role, text) {
+      const row = { role, text };
+      if (DEMO) { const c = { id: uid(), created_at: new Date().toISOString(), ...row }; (demo.chat = demo.chat || []).push(c); return c; }
+      const { data, error } = await sb.from("chat").insert(row).select().single();
       if (error) throw error; return data;
     },
   };
