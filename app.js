@@ -135,6 +135,7 @@
       col.className = "col";
       col.dataset.stage = stage.name;
       col.style.borderTopColor = stage.color;
+      col.draggable = state.activeProject !== "all"; // columns reorderable per project
       col.innerHTML = `
         <div class="col-head">
           <span class="col-dot" style="background:${stage.color}"></span>
@@ -153,16 +154,27 @@
       const editBtn = $(".col-edit", col);
       if (editBtn) editBtn.onclick = () => openColumnModal(stage);
 
-      // dnd
+      // task dnd (drop task onto column)
       col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("drag-over"); });
       col.addEventListener("dragleave", () => col.classList.remove("drag-over"));
       col.addEventListener("drop", (e) => {
         e.preventDefault(); col.classList.remove("drag-over");
+        const colId = e.dataTransfer.getData("application/x-col-id");
+        if (colId) { reorderColumn(colId, stage.id); return; } // column reorder
         const id = e.dataTransfer.getData("text/plain");
         const t = byId(state.tasks, id);
         if (!t) return;
         moveTaskToStage(t, stage.name, body);
       });
+
+      // column dnd: drag header to reorder
+      const head = $(".col-head", col);
+      head.draggable = state.activeProject !== "all";
+      head.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData("application/x-col-id", stage.id);
+        e.dataTransfer.effectAllowed = "move";
+      });
+      head.addEventListener("dragend", () => {});
 
       // touch dnd (pointer events)
       enableTouchDnD(col, body, stage.name);
@@ -224,6 +236,25 @@
       try { await fn(e); } catch (err) { console.error(err); }
       finally { state._busy = false; }
     };
+  }
+
+  async function reorderColumn(draggedId, targetId) {
+    if (draggedId === targetId) return;
+    const cols = colsForProject(state.activeProject).sort((a, b) => a.position - b.position);
+    const dragged = byId(cols, draggedId);
+    if (!dragged || !cols.find((c) => c.id === targetId)) return;
+    // remove dragged, insert before target
+    const rest = cols.filter((c) => c.id !== draggedId);
+    const idx = rest.findIndex((c) => c.id === targetId);
+    rest.splice(idx, 0, dragged);
+    // renumber positions
+    rest.forEach((c, i) => { c.position = i + 1; });
+    state.columns = state.columns.map((c) => rest.find((x) => x.id === c.id) || c);
+    await DB.updateColumn(draggedId, { position: dragged.position });
+    for (const c of rest) {
+      if (c.id !== draggedId) await DB.updateColumn(c.id, { position: c.position });
+    }
+    renderBoard();
   }
 
   async function moveTaskToStage(task, stageName, bodyEl) {
