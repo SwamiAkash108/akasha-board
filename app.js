@@ -76,7 +76,7 @@
   }
   function isDoneStage(name) {
     const key = String(name).toLowerCase();
-    return key === "done" || key.startsWith("done") || key.includes("complete") || key.includes("publish") || key.includes("shipped");
+    return key === "done" || key.startsWith("done") || key === "live" || key.includes("complete") || key.includes("publish") || key.includes("shipped");
   }
   function firstStage(pid) {
     const cols = colsForProject(pid);
@@ -106,6 +106,7 @@
     $("#view-charts").classList.toggle("active", state.view === "charts");
     $("#view-updates").classList.toggle("active", state.view === "updates");
     $("#view-today").classList.toggle("active", state.view === "today");
+    $("#view-sync").classList.toggle("active", state.view === "sync");
     $("#view-list").classList.toggle("active", state.view === "list");
     $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === state.view));
     if (state.view === "board") renderBoard();
@@ -114,6 +115,7 @@
     else if (state.view === "updates") renderChat();
     else if (state.view === "list") renderList();
     else if (state.view === "today") renderToday();
+    else if (state.view === "sync") renderSync();
   }
 
   function renderChips() {
@@ -583,6 +585,123 @@
   }
 
   /* ---------- CHARTS ---------- */
+  /* ---------- sync (meeting agenda from live board) ---------- */
+  // Meetings: Tue/Thu/Sat at 9.30 local. Format (25 min): Blockers → Decisions → Commitments.
+  const SYNC_DAYS = [2, 4, 6];
+  const SYNC_H = 9, SYNC_M = 30;
+  const DECIDE_RE = /\bdecid|\bdecision|\bchoose|\bpick\b|\bselect\b/i;
+
+  function nextSync(now) {
+    now = now || new Date();
+    for (let add = 0; add < 8; add++) {
+      const d = new Date(now);
+      d.setDate(d.getDate() + add);
+      d.setHours(SYNC_H, SYNC_M, 0, 0);
+      if (SYNC_DAYS.includes(d.getDay()) && d > now) return d;
+    }
+    return now;
+  }
+
+  function syncData() {
+    const today = todayStr();
+    const openT = state.tasks.filter((t) => !isDoneStage(t.status) && !projHidden(t.project_id));
+    const isBlockedCol = (s) => String(s).toLowerCase().includes("block");
+    const overdue = openT.filter((t) => t.due && t.due < today);
+    const blocked = openT.filter((t) => isBlockedCol(t.status) && !(t.due && t.due < today));
+    const blockers = [...overdue, ...blocked].sort((a, b) => (a.due || "9999") < (b.due || "9999") ? -1 : 1);
+    const decisions = openT.filter((t) => DECIDE_RE.test(t.title)).sort((a, b) => a.priority - b.priority);
+    const commitments = openT
+      .filter((t) => {
+        const first = colsForProject(t.project_id)[0];
+        return t.status !== (first && first.name) && !isBlockedCol(t.status);
+      })
+      .sort((a, b) => (a.due || "9999") < (b.due || "9999") ? -1 : 1);
+    return { blockers, decisions, commitments };
+  }
+
+  function syncItem(t, why) {
+    const p = projOf(t);
+    const ppl = peopleOf(t).map((x) => esc(x.name)).join(", ");
+    const due = t.due ? (t.due < todayStr() ? "overdue " + fmtDate(t.due) : t.due === todayStr() ? "due today" : "due " + fmtDate(t.due)) : "";
+    return `<div class="sync-item" data-tid="${t.id}">
+      <div class="sync-item-main">
+        <span class="sync-proj" style="color:${p ? p.color || "var(--accent)" : "var(--accent)"}">${esc(p ? p.name : "")}</span>
+        <span class="sync-title">${esc(t.title)}</span>
+      </div>
+      <div class="sync-meta">${why ? `<span class="sync-why">${esc(why)}</span>` : ""}${ppl ? `<span>${ppl}</span>` : ""}${due ? `<span class="sync-due ${t.due && t.due <= todayStr() ? "hot" : ""}">${due}</span>` : ""}</div>
+    </div>`;
+  }
+
+  function syncText() {
+    const nx = nextSync();
+    const day = nx.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+    const { blockers, decisions, commitments } = syncData();
+    const line = (t) => {
+      const p = projOf(t);
+      const ppl = peopleOf(t).map((x) => x.name).join(", ");
+      const due = t.due ? (t.due < todayStr() ? ", overdue since " + fmtDate(t.due) : t.due === todayStr() ? ", due today" : ", due " + fmtDate(t.due)) : "";
+      return `• [${p ? p.name : ""}] ${t.title}${ppl ? " — " + ppl : ""}${due}`;
+    };
+    let s = `Knowledge sync, ${day}, 9.30, 25 min\nBoard is current, glance at it before. No status round.\n`;
+    s += `\n1. BLOCKERS (5 min)\n` + (blockers.length ? blockers.map(line).join("\n") : "• none") + `\n`;
+    s += `\n2. DECISIONS (15 min)\n` + (decisions.length ? decisions.map(line).join("\n") : "• none open") + `\n`;
+    s += `\n3. COMMITMENTS (5 min)\n` + (commitments.length ? commitments.map(line).join("\n") : "• nothing in flight") + `\n`;
+    return s;
+  }
+
+  function renderSync() {
+    const wrap = $("#sync-wrap");
+    const nx = nextSync();
+    const ds = localISODate(nx), today = todayStr();
+    const rel = ds === today ? "today" : ds === addDays(today, 1) ? "tomorrow" : nx.toLocaleDateString("en-GB", { weekday: "long" });
+    const hrs = Math.max(0, Math.round((nx - new Date()) / 36e5));
+    const inTxt = ds === today && hrs <= 12 ? ` · in ${hrs}h` : "";
+    const { blockers, decisions, commitments } = syncData();
+
+    const panel = (cls, n, title, sub, items, why) => `
+      <div class="panel sync-panel ${cls}">
+        <h3>${n}. ${title} <span class="sync-count">${items.length}</span></h3>
+        <p class="sync-sub">${sub}</p>
+        ${items.length ? items.map((t) => syncItem(t, why && why(t))).join("") : `<p class="sync-empty">all clear</p>`}
+      </div>`;
+
+    wrap.innerHTML = `
+      <div class="sync-grid">
+        <div class="panel sync-head">
+          <div>
+            <h3>Next sync</h3>
+            <p class="sync-next">${rel} · ${SYNC_H}.${String(SYNC_M).padStart(2, "0")}${inTxt}</p>
+            <p class="sync-sub">every Tuesday, Thursday, Saturday · 25 min · blockers → decisions → commitments</p>
+          </div>
+          <button id="sync-copy" class="btn-accent sync-copybtn">Copy agenda</button>
+        </div>
+        ${panel("sync-block", 1, "Blockers", "what is stuck or overdue, unstick it in the room", blockers, (t) => (t.due && t.due < todayStr() ? "overdue" : "blocked"))}
+        ${panel("sync-dec", 2, "Decisions", "what needs a yes or a no, decide, do not drift", decisions)}
+        ${panel("sync-commit sync-commitfull", 3, "Commitments", "in flight right now, confirm owners and dates out loud", commitments)}
+        <p class="sync-foot">built live from the board · voice-note Fluso after the meeting and the board gets updated</p>
+      </div>`;
+
+    $("#sync-copy").onclick = async (e) => {
+      const btn = e.currentTarget;
+      try {
+        await navigator.clipboard.writeText(syncText());
+        btn.textContent = "Copied";
+      } catch (_) {
+        const ta = document.createElement("textarea");
+        ta.value = syncText(); document.body.appendChild(ta); ta.select();
+        document.execCommand("copy"); ta.remove();
+        btn.textContent = "Copied";
+      }
+      setTimeout(() => (btn.textContent = "Copy agenda"), 1600);
+    };
+    $$(".sync-item", wrap).forEach((el) => {
+      el.onclick = () => {
+        const t = byId(state.tasks, el.dataset.tid);
+        if (t) openTaskModal(t);
+      };
+    });
+  }
+
   function renderCharts() {
     const tasks = filteredTasks();
     const stages = visibleStages();
