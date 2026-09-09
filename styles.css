@@ -47,7 +47,7 @@ body::after{
 
 /* ---------- top bar ---------- */
 #topbar{
-  position:sticky; top:0; z-index:40; display:flex; align-items:center; gap:14px;
+  position:sticky; top:0; z-index:40; display:flex; align-items:center; gap:14px; flex-wrap:wrap;
   padding:12px 18px; padding-top:calc(12px + env(safe-area-inset-top));
   background:var(--red); border-bottom:4px solid var(--ink);
 }
@@ -62,6 +62,16 @@ body::after{
   text-transform:uppercase; color:var(--ink);
 }
 .brand-sub{font-family:var(--font-type); font-size:11px; color:var(--cream); opacity:.85}
+.area-chips{
+  display:flex; gap:8px; overflow-x:auto; scrollbar-width:none; padding:4px 2px 2px;
+  flex-basis:100%; order:6;
+}
+.area-chips::-webkit-scrollbar{display:none}
+.area-chip{
+  padding:6px 13px; font-size:11px; min-height:30px; border-width:2px;
+  background:transparent; box-shadow:none; opacity:.85;
+}
+.area-chip.active{background:var(--chip-color,var(--ink)); border-color:var(--chip-color,var(--ink)); color:var(--cream); opacity:1}
 .project-chips{
   display:flex; gap:9px; overflow-x:auto; scrollbar-width:none; flex:1; padding:4px 2px;
   -webkit-mask-image:linear-gradient(90deg,transparent,#000 12px,#000 calc(100% - 12px),transparent);
@@ -450,6 +460,7 @@ body::after{
   #btn-add-project{order:3}
   #btn-refresh{order:4}
   #project-chips{order:5; flex:1 1 100%; min-width:0; padding:2px 2px 5px}
+  #area-chips{order:6}
   .brand-sub{display:none}
   .brand-name{font-size:19px}
   .brand-icon{width:34px; height:34px}
