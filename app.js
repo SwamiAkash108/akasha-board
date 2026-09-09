@@ -11,7 +11,7 @@
 
   const state = {
     projects: [], columns: [], people: [], tasks: [], updates: [], chat: [],
-    activeProject: "all", view: "board", modalTask: null,
+    activeProject: "all", activeArea: "all", view: "board", modalTask: null,
     search: "", hideDone: false, hideUnscheduled: false, todayWho: "all", todayScope: "due",
   };
 
@@ -37,6 +37,16 @@
     return !mem.includes(me);
   };
   const visibleProjects = () => state.projects.filter((p) => !projHidden(p.id));
+  // Areas = roles/departments. Project.area, default 'Knowledge & Academy'.
+  const AREAS = ["Knowledge & Academy", "Board of Appointed Swamis", "Board of Directors", "Personal"];
+  const AREA_COLORS = { "Knowledge & Academy": "#c9912f", "Board of Appointed Swamis": "#6b7040", "Board of Directors": "#2b4361", "Personal": "#a05b8f" };
+  const projArea = (p) => p.area || "Knowledge & Academy";
+  const areaProjects = () => visibleProjects().filter((p) => state.activeArea === "all" || projArea(p) === state.activeArea);
+  const projOutOfArea = (pid) => {
+    if (state.activeArea === "all") return false;
+    const p = byId(state.projects, pid);
+    return p ? projArea(p) !== state.activeArea : false;
+  };
   const escAttr = esc;
   const byId = (arr, id) => arr.find((x) => x.id === id);
   const initials = (name) => name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
@@ -58,7 +68,7 @@
     if (state.activeProject !== "all") return colsForProject(state.activeProject);
     // union by lowercased name, first occurrence order (seeded projects give classic four first)
     const seen = new Map();
-    const projs = visibleProjects().map((p) => p.id);
+    const projs = areaProjects().map((p) => p.id);
     const sorted = [...state.columns].sort((a, b) =>
       projs.indexOf(a.project_id) - projs.indexOf(b.project_id) || a.position - b.position);
     for (const c of sorted) {
@@ -86,6 +96,7 @@
   /* ---------- task filtering ---------- */
   function filteredTasks() {
     let ts = state.tasks.filter((t) => !projHidden(t.project_id));
+    if (state.activeArea !== "all") ts = ts.filter((t) => !projOutOfArea(t.project_id));
     if (state.activeProject !== "all") ts = ts.filter((t) => t.project_id === state.activeProject);
     if (state.search) {
       const q = state.search.toLowerCase();
@@ -99,7 +110,8 @@
 
   /* ---------- render dispatch ---------- */
   function render() {
-    if (state.activeProject !== "all" && projHidden(state.activeProject)) state.activeProject = "all";
+    if (state.activeProject !== "all" && (projHidden(state.activeProject) || projOutOfArea(state.activeProject))) state.activeProject = "all";
+    renderAreaChips();
     renderChips();
     $("#view-board").classList.toggle("active", state.view === "board");
     $("#view-timeline").classList.toggle("active", state.view === "timeline");
@@ -116,6 +128,25 @@
     else if (state.view === "list") renderList();
     else if (state.view === "today") renderToday();
     else if (state.view === "sync") renderSync();
+  }
+
+  function renderAreaChips() {
+    const wrap = $("#area-chips");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    // only show areas that have visible projects
+    const present = [...new Set(visibleProjects().map(projArea))];
+    const areas = AREAS.filter((a) => present.includes(a));
+    const mk = (id, label) => {
+      const b = document.createElement("button");
+      b.className = "chip area-chip" + (state.activeArea === id ? " active" : "");
+      b.textContent = label;
+      if (AREA_COLORS[id]) b.style.setProperty("--chip-color", AREA_COLORS[id]);
+      b.onclick = () => { state.activeArea = id; state.activeProject = "all"; render(); };
+      wrap.appendChild(b);
+    };
+    mk("all", "All areas");
+    areas.forEach((a) => mk(a, a));
   }
 
   function renderChips() {
@@ -140,7 +171,7 @@
       wrap.appendChild(b);
     };
     mk("all", "All projects");
-    visibleProjects().forEach((p) => mk(p.id, p.name, p.color, Array.isArray(p.members) && p.members.length > 0));
+    areaProjects().forEach((p) => mk(p.id, p.name, p.color, Array.isArray(p.members) && p.members.length > 0));
   }
 
   /* ---------- BOARD ---------- */
@@ -753,7 +784,7 @@
 
     // per-project progress
     const pp = $("#chart-projects");
-    const projs = state.activeProject === "all" ? visibleProjects() : state.projects.filter((p) => p.id === state.activeProject);
+    const projs = state.activeProject === "all" ? areaProjects() : state.projects.filter((p) => p.id === state.activeProject);
     pp.innerHTML = projs.map((p) => {
       const ts = state.tasks.filter((t) => t.project_id === p.id && !projHidden(t.project_id));
       const done = ts.filter((t) => isDoneStage(t.status)).length;
@@ -978,11 +1009,11 @@
 
   function openTaskModal(task, preset = {}) {
     const isNew = !task;
-    const t = task || { title: "", project_id: state.activeProject !== "all" && !projHidden(state.activeProject) ? state.activeProject : (visibleProjects()[0] || {}).id, status: preset.status || "To do", priority: 2, start: "", due: "", notes: "", assignees: [] };
+    const t = task || { title: "", project_id: state.activeProject !== "all" && !projHidden(state.activeProject) ? state.activeProject : (areaProjects()[0] || {}).id, status: preset.status || "To do", priority: 2, start: "", due: "", notes: "", assignees: [] };
     const projCols = colsForProject(t.project_id);
     const stageOpts = (projCols.length ? projCols : visibleStages())
       .map((s) => `<option value="${escAttr(s.name)}" ${String(t.status).toLowerCase() === s.name.toLowerCase() ? "selected" : ""}>${esc(s.name)}</option>`).join("");
-    const projOpts = visibleProjects()
+    const projOpts = areaProjects()
       .map((p) => `<option value="${p.id}" ${t.project_id === p.id ? "selected" : ""}>${esc(p.name)}</option>`).join("");
     const selPeople = peopleOf(t).map((x) => x.id);
     const peopleOpts = state.people
