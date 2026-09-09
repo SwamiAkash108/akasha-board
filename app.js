@@ -635,7 +635,7 @@
 
   function syncData() {
     const today = todayStr();
-    const openT = state.tasks.filter((t) => !isDoneStage(t.status) && !projHidden(t.project_id));
+    const openT = filteredTasks().filter((t) => !isDoneStage(t.status));
     const isBlockedCol = (s) => String(s).toLowerCase().includes("block");
     const overdue = openT.filter((t) => t.due && t.due < today);
     const blocked = openT.filter((t) => isBlockedCol(t.status) && !(t.due && t.due < today));
@@ -673,7 +673,7 @@
       const due = t.due ? (t.due < todayStr() ? ", overdue since " + fmtDate(t.due) : t.due === todayStr() ? ", due today" : ", due " + fmtDate(t.due)) : "";
       return `• [${p ? p.name : ""}] ${t.title}${ppl ? " — " + ppl : ""}${due}`;
     };
-    let s = `Knowledge sync, ${day}, 9.30, 25 min\nBoard is current, glance at it before. No status round.\n`;
+    let s = `${state.activeArea === "all" ? "Knowledge sync" : state.activeArea + " sync"}, ${day}, 9.30, 25 min\nBoard is current, glance at it before. No status round.\n`;
     s += `\n1. BLOCKERS (5 min)\n` + (blockers.length ? blockers.map(line).join("\n") : "• none") + `\n`;
     s += `\n2. DECISIONS (15 min)\n` + (decisions.length ? decisions.map(line).join("\n") : "• none open") + `\n`;
     s += `\n3. COMMITMENTS (5 min)\n` + (commitments.length ? commitments.map(line).join("\n") : "• nothing in flight") + `\n`;
